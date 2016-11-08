@@ -1,0 +1,12 @@
+URL: https://github.com/sandstorm-io/capnproto/archive/3adcf4a143f69bede481cf6de89cafa7c628bd47.zip
+Version: 3adcf4a143f69bede481cf6de89cafa7c628bd47
+License: MIT
+License File: LICENSE
+
+Description:
+Cap'n Proto is the insanely fast data interchange format and capability-based RPC system.
+
+Local Modifications:
+Change certain import paths to match repo
+Add Go annotations to RPC and C++ schemas
+Change C++ codegen to use quotes in #include

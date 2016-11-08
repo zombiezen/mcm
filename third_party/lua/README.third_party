@@ -1,0 +1,11 @@
+URL: https://www.lua.org/ftp/lua-5.3.3.tar.gz
+Version: 5.3.3
+SHA1: a0341bc3d1415b814cc738b2ec01ae56045d64ef
+License: MIT
+License File: LICENSE
+
+Description:
+Lua is a powerful, fast, lightweight, embeddable scripting language.
+
+Local Modifications:
+LICENSE file created for compliance.

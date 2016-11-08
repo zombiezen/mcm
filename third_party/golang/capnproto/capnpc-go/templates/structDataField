@@ -1,0 +1,20 @@
+func (s {{.Node.Name}}) {{.Field.Name|title}}() ({{.FieldType}}, error) {
+	p, err := s.Struct.Ptr({{.Field.Slot.Offset}})
+	{{with .Default -}}
+	return {{$.FieldType}}(p.DataDefault({{printf "%#v" .}})), err
+	{{- else -}}
+	return {{.FieldType}}(p.Data()), err
+	{{- end}}
+}
+
+{{template "_hasfield" .}}
+
+func (s {{.Node.Name}}) Set{{.Field.Name|title}}(v {{.FieldType}}) error {
+	{{template "_settag" . -}}
+	d, err := {{.G.Capnp}}.NewData(s.Struct.Segment(), []byte(v))
+	if err != nil {
+		return err
+	}
+	return s.Struct.SetPtr({{.Field.Slot.Offset}}, d.List.ToPtr())
+}
+

@@ -1,0 +1,32 @@
+URL: https://github.com/zombiezen/go-capnproto2/archive/024235e54f352cd01702cc0bdcbad50aa77cd8e4.zip
+Version: 024235e54f352cd01702cc0bdcbad50aa77cd8e4
+License: MIT
+License File: LICENSE
+
+Description:
+Cap'n Proto is the insanely fast data interchange format and capability-based RPC system.
+
+This is the Go library for Cap'n Proto.
+
+Local Modifications:
+* Change import paths (for libraries and generated code) to zombiezen/third_party
+* Use runfiles for integration tests
+* Remove cyclic dependency on go.capnp.go
+
+Exclude:
+capnpc-go/templates.go
+go.capnp.go
+internal/aircraftlib/aircraft.capnp.go
+internal/aircraftlib/gen.go
+internal/demo/
+std/capnp/c++.capnp
+std/capnp/cxx/
+std/capnp/json.capnp
+std/capnp/json/
+std/capnp/persistent.capnp
+std/capnp/persistent/
+std/capnp/rpc.capnp
+std/capnp/rpc/
+std/capnp/rpc-twoparty.capnp
+std/capnp/rpctwoparty/
+std/capnp/schema.capnp

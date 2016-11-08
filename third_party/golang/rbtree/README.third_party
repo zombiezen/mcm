@@ -1,0 +1,10 @@
+URL: https://github.com/glycerine/rbtree/archive/cd7940bb26b149ce2faf398e7c63fff01aa7b394.zip
+Version: cd7940bb26b149ce2faf398e7c63fff01aa7b394
+License: MIT
+License File: LICENSE
+
+Description:
+Yet-another red-black tree implementation for Go, with a C++ STL-like API.
+
+Local Modifications:
+No Modifications.

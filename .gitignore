@@ -1,0 +1,6 @@
+.bazel
+bazel-bin
+bazel-genfiles
+bazel-mcm
+bazel-out
+bazel-testlogs

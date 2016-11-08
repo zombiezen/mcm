@@ -1,0 +1,23 @@
+#!/bin/bash
+# Wrapper that autoinstalls Bazel
+
+die() {
+  echo "$@" 1>&2
+  exit 1
+}
+
+WORKSPACE_DIR="$(dirname "$(readlink -f "$0")")"
+BAZEL_RELEASE='0.4.0'
+if [[ ! -x "$WORKSPACE_DIR/.bazel/bin/bazel" ]]; then
+  echo "Downloading Bazel ${BAZEL_RELEASE}..." 1>&2
+  installscript="/tmp/bazel-${BAZEL_RELEASE}.sh"
+  curl -sSL "https://github.com/bazelbuild/bazel/releases/download/${BAZEL_RELEASE}/bazel-${BAZEL_RELEASE}-installer-linux-x86_64.sh" > "$installscript" || \
+    (rm -f "$installscript" ; die "bazel: wrapper: failed to download")
+  bash /tmp/bazel-${BAZEL_RELEASE}.sh \
+    --bin="$WORKSPACE_DIR/.bazel/bin" \
+    --base="$WORKSPACE_DIR/.bazel/lib" \
+    --bazelrc="$WORKSPACE_DIR/.bazel/bazelrc" || \
+    (rm -f "$installscript" ; die "bazel: wrapper: failed to install")
+  rm -f "$installscript"
+fi
+exec "$WORKSPACE_DIR/.bazel/bin/bazel" "$@"

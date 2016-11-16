@@ -112,7 +112,7 @@ struct Exec @0x984c97311006f1ca {
   command @0 :Command;
   # Command to run if the condition is met.
 
-  condition :group {
+  condition :union {
     always @1 :Void;
     # Command will always be run.  Used if the command is idempotent.
     onlyIf @2 :Command;

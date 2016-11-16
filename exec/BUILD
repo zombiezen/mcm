@@ -1,5 +1,3 @@
-package(default_visibility = ["//godfather:__subpackages__"])
-
 go_binary(
     name = "mcm-exec",
     srcs = glob(["*.go"]),

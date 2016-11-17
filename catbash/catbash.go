@@ -50,6 +50,11 @@ func writeScript(w io.Writer, g *depgraph.Graph) error {
 }
 
 func scriptResource(ew *errWriter, r catalog.Resource) error {
+	if c, _ := r.Comment(); c != "" {
+		fmt.Fprintf(ew, "\n# %s\n", c)
+	} else {
+		fmt.Fprintf(ew, "\n# Resource ID=%d\n", r.ID())
+	}
 	f, _ := r.File()
 	path, err := f.Path()
 	if err != nil {

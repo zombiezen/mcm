@@ -1,6 +1,9 @@
 cc_binary(
     name = "mcm-luacat",
-    srcs = glob(["*.c++"]),
+    srcs = glob([
+        "*.c++",
+        "*.h",
+    ]),
     deps = [
         "//:catalog_cc",
         "//third_party/capnproto:capnp_lib",

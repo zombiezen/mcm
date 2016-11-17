@@ -15,6 +15,7 @@
 #include "openssl/sha.h"
 
 #include "catalog.capnp.h"
+#include "luacat/value.h"
 
 namespace mcm {
 
@@ -57,26 +58,6 @@ namespace {
     return kj::StringPtr(s, len);
   }
 
-  void pushuint64(lua_State* state, uint64_t x) {
-    // TODO(soon): make a program-wide tagged union for C data.
-    uint64_t* ptr = reinterpret_cast<uint64_t*>(lua_newuserdata(state, sizeof(uint64_t)));
-    *ptr = x;
-  }
-
-  bool isuint64(lua_State* state, int index) {
-    // TODO(soon): make a program-wide tagged union for C data.
-    return lua_type(state, index) == LUA_TUSERDATA;
-  }
-
-  uint64_t touint64(lua_State* state, int index) {
-    // TODO(soon): make a program-wide tagged union for C data.
-    auto ptr = reinterpret_cast<uint64_t*>(lua_touserdata(state, index));
-    if (ptr == nullptr) {
-      return 0;
-    }
-    return *ptr;
-  }
-
   uint64_t idHash(kj::StringPtr s) {
     SHA_CTX ctx;
     SHA1_Init(&ctx);
@@ -99,7 +80,8 @@ namespace {
       return luaL_error(state, "'mcm.hash' takes 1 argument, got %d", lua_gettop(state));
     }
     luaL_argcheck(state, lua_isstring(state, 1), 1, "must be a string");
-    pushuint64(state, idHash(luaStringPtr(state, 1)));
+    auto comment = luaStringPtr(state, 1);
+    pushId(state, kj::heap<Id>(idHash(comment), comment));
     return 1;
   }
 
@@ -116,7 +98,7 @@ namespace {
       lua_setmetatable(state, 1);  // pops the table
     }
 
-    pushuint64(state, fileResId);
+    pushResourceType(state, fileResId);
     lua_setfield(state, -2, resourceTypeMetaKey);
     lua_pop(state, 1);
 
@@ -188,26 +170,32 @@ namespace {
     if (lua_gettop(state) != 3) {
       return luaL_error(state, "'mcm.resource' takes 3 arguments, got %d", lua_gettop(state));
     }
-    luaL_argcheck(state, isuint64(state, 1) || lua_isstring(state, 1), 1, "must be a uint64 or string");
     luaL_argcheck(state, lua_istable(state, 2), 2, "must be a table");
     luaL_argcheck(state, lua_istable(state, 3), 3, "must be a table");
 
-    if (!lua_getmetatable(state, 3)) {
-      return luaL_argerror(state, 3, "not a resource table");
+    if (!luaL_getmetafield(state, 3, resourceTypeMetaKey)) {
+      return luaL_argerror(state, 3, "expect resource table");
     }
-    lua_getfield(state, -1, resourceTypeMetaKey);
-    if (!isuint64(state, -1)) {
-      return luaL_argerror(state, 3, "not a resource table");
+    auto maybeTypeId = getResourceType(state, -1);
+    uint64_t typeId;
+    KJ_IF_MAYBE(t, maybeTypeId) {
+      typeId = *t;
+    } else {
+      return luaL_argerror(state, 3, "expect resource table");
     }
-    uint64_t typeId = touint64(state, -1);
-    lua_pop(state, 2);
+    lua_pop(state, 1);
 
     Lua* l = reinterpret_cast<Lua*>(lua_touserdata(state, lua_upvalueindex(1)));
     auto res = l->newResource();
-    if (lua_isstring(state, 1)) {
-      res.setId(idHash(luaStringPtr(state, 1)));
+    KJ_IF_MAYBE(id, getId(state, 1)) {
+      res.setId(id->getValue());
+      res.setComment(id->getComment());
+    } else if (lua_isstring(state, 1)) {
+      auto comment = luaStringPtr(state, 1);
+      res.setId(idHash(comment));
+      res.setComment(comment);
     } else {
-      res.setId(touint64(state, 1));
+      return luaL_argerror(state, 1, "expect mcm.hash or string");
     }
     lua_len(state, 2);
     lua_Integer ndeps = lua_tointeger(state, -1);
@@ -217,10 +205,12 @@ namespace {
       // TODO(soon): sort
       for (lua_Integer i = 1; i <= ndeps; i++) {
         lua_geti(state, 2, i);
-        if (isuint64(state, -1)) {
-          depList.set(i-1, touint64(state, -1));
+        KJ_IF_MAYBE(id, getId(state, -1)) {
+          depList.set(i-1, id->getValue());
         } else if (lua_isstring(state, -1)) {
           depList.set(i-1, idHash(luaStringPtr(state, -1)));
+        } else {
+          return luaL_argerror(state, 2, "expect deps to contain only mcm.hash or strings");
         }
         lua_pop(state, 1);
       }

@@ -40,12 +40,18 @@ func applyCatalog(g *depgraph.Graph) error {
 			return errors.New("graph not done, but has nothing to do")
 		}
 		curr := ready[0]
-		if err := applyResource(g.Resource(curr)); err == nil {
+		res := g.Resource(curr)
+		if c, _ := res.Comment(); c != "" {
+			fmt.Printf("Applying: %s (id=%d)\n", c, res.ID())
+		} else {
+			fmt.Printf("Applying: id=%d\n", res.ID())
+		}
+		if err := applyResource(res); err == nil {
 			g.Mark(curr)
 		} else {
 			// TODO(soon): log skipped resources
 			g.MarkFailure(curr)
-			fmt.Fprintf(os.Stderr, "mcm-exec: applying resource %d:", curr, err)
+			fmt.Fprintln(os.Stderr, "mcm-exec:", err)
 			ok = false
 		}
 	}
@@ -62,9 +68,9 @@ func applyResource(r catalog.Resource) error {
 		}
 		c, _ := r.Comment()
 		if c == "" {
-			return fmt.Errorf("apply %d: %v", r.ID(), e)
+			return fmt.Errorf("apply id=%d: %v", r.ID(), e)
 		}
-		return fmt.Errorf("apply %q (id=%d): %v", c, r.ID(), e)
+		return fmt.Errorf("apply %s (id=%d): %v", c, r.ID(), e)
 	}
 	switch r.Which() {
 	case catalog.Resource_Which_file:

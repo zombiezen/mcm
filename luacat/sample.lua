@@ -21,3 +21,9 @@ mcm.resource('bar', {homedir}, mcm.file{
     content = 'Good bye, World!',
   },
 })
+
+mcm.resource('apt-get update', {}, mcm.exec{
+  command = {
+    argv = {"/usr/bin/apt-get", "update"},
+  },
+})

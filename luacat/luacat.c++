@@ -45,6 +45,7 @@ namespace {
   const char* idHashPrefix = "mcm-luacat ID: ";
   const char* resourceTypeMetaKey = "mcm_resource";
   const uint64_t fileResId = 0x8dc4ac52b2962163;
+  const uint64_t execResId = 0x984c97311006f1ca;
 
   const kj::ArrayPtr<const kj::byte> luaBytePtr(lua_State* state, int index) {
     size_t len;
@@ -85,26 +86,41 @@ namespace {
     return 1;
   }
 
+  void setResourceType(lua_State* state, int index, uint64_t val) {
+    // Get or create metatable and leave it at top of stack.
+    if (!lua_getmetatable(state, index)) {
+      lua_createtable(state, 0, 1);
+      lua_pushvalue(state, -1);
+      lua_setmetatable(state, index);  // pops the table
+    }
+
+    // metatable[resourceTypeMetaKey] = resourceType(val)
+    pushResourceType(state, val);
+    lua_setfield(state, -2, resourceTypeMetaKey);
+
+    lua_pop(state, 1);
+  }
+
   int filefunc(lua_State* state) {
     if (lua_gettop(state) != 1) {
       return luaL_error(state, "'mcm.file' takes 1 argument, got %d", lua_gettop(state));
     }
     luaL_argcheck(state, lua_istable(state, 1), 1, "must be a table");
-
-    // Get or create metatable and leave it at top of stack.
-    if (!lua_getmetatable(state, 1)) {
-      lua_createtable(state, 0, 1);
-      lua_pushvalue(state, -1);
-      lua_setmetatable(state, 1);  // pops the table
-    }
-
-    pushResourceType(state, fileResId);
-    lua_setfield(state, -2, resourceTypeMetaKey);
-    lua_pop(state, 1);
-
-    // Return original argument
-    return 1;
+    setResourceType(state, 1, fileResId);
+    return 1;  // Return original argument
   }
+
+  int execfunc(lua_State* state) {
+    if (lua_gettop(state) != 1) {
+      return luaL_error(state, "'mcm.exec' takes 1 argument, got %d", lua_gettop(state));
+    }
+    luaL_argcheck(state, lua_istable(state, 1), 1, "must be a table");
+    setResourceType(state, 1, execResId);
+    return 1;  // Return original argument
+  }
+
+  void copyStruct(lua_State* state, capnp::DynamicStruct::Builder builder);
+  void copyList(lua_State* state, capnp::DynamicList::Builder builder);
 
   void copyStruct(lua_State* state, capnp::DynamicStruct::Builder builder) {
     if (!lua_istable(state, -1)) {
@@ -152,6 +168,20 @@ namespace {
             return;
           }
           break;
+        case capnp::schema::Type::LIST:
+          if (lua_istable(state, -1)) {
+            lua_len(state, -1);
+            lua_Integer n = lua_tointeger(state, -1);
+            lua_pop(state, 1);
+            auto sub = builder.init(*field, n).as<capnp::DynamicList>();
+            if (n > 0) {
+              copyList(state, sub);
+            }
+          } else {
+            luaL_error(state, "copyStruct: non-list value for field %s", key);
+            return;
+          }
+          break;
         // TODO(soon): all the other types
         default:
           luaL_error(state, "copyStruct: can't map field %s type %d to Lua", key, field->getType().which());
@@ -163,6 +193,39 @@ namespace {
       }
 
       lua_pop(state, 1);  // pop value, now key is on top.
+    }
+  }
+
+  void copyList(lua_State* state, capnp::DynamicList::Builder builder) {
+    if (!lua_checkstack(state, 2)) {
+      luaL_error(state, "copyList: recursion depth exceeded");
+      return;
+    }
+    switch (builder.getSchema().whichElementType()) {
+    case capnp::schema::Type::TEXT:
+      for (lua_Integer i = 0; i < builder.size(); i++) {
+        if (lua_geti(state, -1, i + 1) != LUA_TSTRING) {
+          luaL_error(state, "copyList: found non-string in List(Text)");
+          return;
+        }
+        capnp::DynamicValue::Reader val(lua_tostring(state, -1));
+        builder.set(i, val);
+        lua_pop(state, 1);
+      }
+      break;
+    case capnp::schema::Type::STRUCT:
+      for (lua_Integer i = 0; i < builder.size(); i++) {
+        if (lua_geti(state, -1, i) != LUA_TTABLE) {
+          luaL_error(state, "copyList: found non-table in List(Text)");
+          return;
+        }
+        copyStruct(state, builder[i].as<capnp::DynamicStruct>());
+        lua_pop(state, 1);
+      }
+      break;
+    default:
+      luaL_error(state, "copyList: can't map type %d to Lua", builder.getSchema().whichElementType());
+      return;
     }
   }
 
@@ -223,6 +286,12 @@ namespace {
         copyStruct(state, f);
       }
       break;
+    case execResId:
+      {
+        auto e = res.initExec();
+        copyStruct(state, e);
+      }
+      break;
     default:
       return luaL_argerror(state, 3, "unknown resource type");
     }
@@ -230,6 +299,7 @@ namespace {
   }
 
   const luaL_Reg mcmlib[] = {
+    {"exec", execfunc},
     {"file", filefunc},
     {"hash", hashfunc},
     {"resource", resourcefunc},

@@ -1,240 +1,185 @@
 package main
 
 import (
-	"errors"
+	"bytes"
+	"context"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/zombiezen/mcm/catalog"
-	"github.com/zombiezen/mcm/internal/depgraph"
+	"github.com/zombiezen/mcm/exec/execlib"
 	"github.com/zombiezen/mcm/third_party/golang/capnproto"
 )
 
+func init() {
+	flag.Usage = usage
+}
+
+func usage() {
+	fmt.Fprintf(os.Stderr, "usage: %s [CATALOG]:\n", os.Args[0])
+	flag.PrintDefaults()
+}
+
 func main() {
-	c, err := readCatalog(os.Stdin)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "mcm-exec: read catalog:", err)
-		os.Exit(1)
+	log := new(logger)
+	o := &realOS{log: log}
+	app := &execlib.Applier{
+		OS:  o,
+		Log: log,
 	}
-	res, _ := c.Resources()
-	g, err := depgraph.New(res)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "mcm-exec:", err)
-		os.Exit(1)
-	}
-	if err = applyCatalog(g); err != nil {
-		fmt.Fprintln(os.Stderr, "mcm-exec:", err)
-		os.Exit(1)
-	}
-}
+	flag.BoolVar(&app.Unconditional, "skip-conditions", false, "whether to skip conditions")
+	flag.BoolVar(&o.simulate, "n", false, "dry-run")
+	flag.BoolVar(&log.quiet, "q", false, "suppress info messages and failure output")
+	flag.BoolVar(&o.logCommands, "s", false, "show commands run in the log")
+	flag.Parse()
 
-func applyCatalog(g *depgraph.Graph) error {
-	ok := true
-	for !g.Done() {
-		ready := g.Ready()
-		if len(ready) == 0 {
-			return errors.New("graph not done, but has nothing to do")
-		}
-		curr := ready[0]
-		res := g.Resource(curr)
-		if c, _ := res.Comment(); c != "" {
-			fmt.Printf("Applying: %s (id=%d)\n", c, res.ID())
-		} else {
-			fmt.Printf("Applying: id=%d\n", res.ID())
-		}
-		if err := applyResource(res); err == nil {
-			g.Mark(curr)
-		} else {
-			// TODO(soon): log skipped resources
-			g.MarkFailure(curr)
-			fmt.Fprintln(os.Stderr, "mcm-exec:", err)
-			ok = false
-		}
-	}
-	if !ok {
-		return errors.New("not all resources applied cleanly")
-	}
-	return nil
-}
-
-func applyResource(r catalog.Resource) error {
-	wrap := func(e error) error {
-		if e == nil {
-			return nil
-		}
-		c, _ := r.Comment()
-		if c == "" {
-			return fmt.Errorf("apply id=%d: %v", r.ID(), e)
-		}
-		return fmt.Errorf("apply %s (id=%d): %v", c, r.ID(), e)
-	}
-	switch r.Which() {
-	case catalog.Resource_Which_file:
-		f, err := r.File()
+	ctx := context.Background()
+	var cat catalog.Catalog
+	switch flag.NArg() {
+	case 0:
+		var err error
+		cat, err = readCatalog(os.Stdin)
 		if err != nil {
-			return wrap(err)
+			log.Fatal(ctx, err)
 		}
-		return wrap(applyFile(f))
-	case catalog.Resource_Which_exec:
-		e, err := r.Exec()
+	case 1:
+		// TODO(someday): read segments lazily
+		f, err := os.Open(flag.Arg(0))
 		if err != nil {
-			return wrap(err)
+			log.Fatal(ctx, err)
 		}
-		return wrap(applyExec(e))
+		cat, err = readCatalog(f)
+		if err != nil {
+			log.Fatal(ctx, err)
+		}
+		if err = f.Close(); err != nil {
+			log.Error(ctx, err)
+		}
 	default:
-		return wrap(fmt.Errorf("unknown type %v", r.Which()))
+		usage()
+		os.Exit(2)
+	}
+
+	if err := app.Apply(ctx, cat); err != nil {
+		log.Fatal(ctx, err)
 	}
 }
 
-func applyFile(f catalog.File) error {
-	path, err := f.Path()
-	if err != nil {
-		return fmt.Errorf("reading file path: %v", err)
-	} else if path == "" {
-		return errors.New("file path is empty")
+type realOS struct {
+	simulate    bool
+	logCommands bool
+	log         *logger
+}
+
+func (o *realOS) Exists(path string) (bool, error) {
+	_, err := os.Lstat(path)
+	if err == nil {
+		return true, nil
 	}
-	fmt.Printf("considering file %s\n", path)
-	switch f.Which() {
-	case catalog.File_Which_plain:
-		if f.Plain().HasContent() {
-			content, _ := f.Plain().Content()
-			// TODO(soon): respect file mode
-			// TODO(soon): collect errors instead of stopping
-			fmt.Printf("writing file %s\n", path)
-			if err := ioutil.WriteFile(path, content, 0666); err != nil {
-				return err
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+func (o *realOS) WriteFile(path string, content []byte, mode os.FileMode) error {
+	if o.simulate {
+		return nil
+	}
+	return ioutil.WriteFile(path, content, mode)
+}
+
+func (o *realOS) Run(ctx context.Context, cmd *exec.Cmd) (output []byte, err error) {
+	if o.logCommands {
+		o.log.Infof(ctx, "exec %s", strings.Join(cmd.Args, " "))
+	}
+	if o.simulate {
+		return nil, nil
+	}
+	return cmd.CombinedOutput()
+}
+
+type logger struct {
+	quiet bool
+	mu    sync.Mutex
+}
+
+func (l *logger) Infof(ctx context.Context, format string, args ...interface{}) {
+	if l.quiet {
+		return
+	}
+	now := time.Now()
+	var line bytes.Buffer
+	writeLogHead(&line, "INFO", now)
+	fmt.Fprintf(&line, format, args...)
+	if b := line.Bytes(); b[len(b)-1] != '\n' {
+		line.WriteByte('\n')
+	}
+	defer l.mu.Unlock()
+	l.mu.Lock()
+	os.Stderr.Write(line.Bytes())
+}
+
+func (l *logger) Error(ctx context.Context, err error) {
+	now := time.Now()
+	var line bytes.Buffer
+	writeLogHead(&line, "ERROR", now)
+	line.WriteString(err.Error())
+	if b := line.Bytes(); b[len(b)-1] != '\n' {
+		line.WriteByte('\n')
+	}
+
+	var output []byte
+	if !l.quiet {
+		if err, ok := err.(*execlib.Error); ok && len(err.Output) > 0 {
+			output = err.Output
+			if n := len(output); output[n-1] == '\n' {
+				new := make([]byte, n+1)
+				copy(new, output)
+				new[n] = '\n'
+				output = new
+			}
+			output = err.Output
+			if err.Output[len(err.Output)-1] != '\n' {
+				line.WriteByte('\n')
 			}
 		}
-	default:
-		return fmt.Errorf("unsupported file directive %v", f.Which())
 	}
-	return nil
+
+	defer l.mu.Unlock()
+	l.mu.Lock()
+	os.Stderr.Write(line.Bytes())
+	if len(output) > 0 {
+		os.Stderr.Write(output)
+	}
 }
 
-func applyExec(e catalog.Exec) error {
-	switch e.Condition().Which() {
-	case catalog.Exec_condition_Which_always:
-		// Continue.
-	case catalog.Exec_condition_Which_onlyIf:
-		cond, err := e.Condition().OnlyIf()
-		if err != nil {
-			return fmt.Errorf("condition: %v", err)
-		}
-		cmd, err := buildCommand(cond)
-		if err != nil {
-			return fmt.Errorf("condition: %v", err)
-		}
-		out, err := cmd.CombinedOutput()
-		if _, exitFail := err.(*exec.ExitError); exitFail {
-			return nil
-		} else if err != nil {
-			return fmt.Errorf("condition: %v; output:\n%s", err, out)
-		}
-	case catalog.Exec_condition_Which_unless:
-		cond, err := e.Condition().Unless()
-		if err != nil {
-			return fmt.Errorf("condition: %v", err)
-		}
-		cmd, err := buildCommand(cond)
-		if err != nil {
-			return fmt.Errorf("condition: %v", err)
-		}
-		out, err := cmd.CombinedOutput()
-		if err == nil {
-			return nil
-		} else if _, exitFail := err.(*exec.ExitError); !exitFail {
-			return fmt.Errorf("condition: %v; output:\n%s", err, out)
-		}
-	case catalog.Exec_condition_Which_fileAbsent:
-		path, _ := e.Condition().FileAbsent()
-		if _, err := os.Lstat(path); err == nil {
-			return nil
-		} else if !os.IsNotExist(err) {
-			return fmt.Errorf("condition: %v", err)
-		}
-	default:
-		return fmt.Errorf("unknown condition %v", e.Condition().Which())
-	}
-
-	main, err := e.Command()
-	if err != nil {
-		return fmt.Errorf("command: %v", err)
-	}
-	cmd, err := buildCommand(main)
-	if err != nil {
-		return fmt.Errorf("command: %v", err)
-	}
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("command: %v; output:\n%s", err, out)
-	}
-	return nil
+func writeLogHead(buf *bytes.Buffer, severity string, now time.Time) {
+	buf.WriteString("mcm-exec: ")
+	buf.WriteString(now.Format("2006-01-02T15:04:05"))
+	fmt.Fprintf(buf, " %5s: ", severity)
 }
 
-func buildCommand(cmd catalog.Exec_Command) (*exec.Cmd, error) {
-	var c *exec.Cmd
-	switch cmd.Which() {
-	case catalog.Exec_Command_Which_argv:
-		argList, _ := cmd.Argv()
-		if argList.Len() == 0 {
-			return nil, fmt.Errorf("0-length argv")
-		}
-		argv := make([]string, argList.Len())
-		for i := range argv {
-			var err error
-			argv[i], err = argList.At(i)
-			if err != nil {
-				return nil, fmt.Errorf("argv[%d]: %v", i, err)
-			}
-		}
-		if !filepath.IsAbs(argv[0]) {
-			return nil, fmt.Errorf("argv[0] (%q) is not an absolute path", argv[0])
-		}
-		c = &exec.Cmd{
-			Path: argv[0],
-			Args: argv,
-		}
-	default:
-		return nil, fmt.Errorf("unsupported command type %v", cmd.Which())
-	}
-
-	env, _ := cmd.Environment()
-	c.Env = make([]string, env.Len())
-	for i := range c.Env {
-		ei := env.At(i)
-		k, err := ei.NameBytes()
-		if err != nil {
-			return nil, fmt.Errorf("getting environment[%d]: %v", i, err)
-		} else if len(k) == 0 {
-			return nil, fmt.Errorf("environment[%d] missing name", i)
-		}
-		v, _ := ei.ValueBytes()
-		buf := make([]byte, 0, len(k)+len(v)+1)
-		buf = append(buf, k...)
-		buf = append(buf, '=')
-		buf = append(buf, v...)
-		c.Env[i] = string(buf)
-	}
-
-	c.Dir, _ = cmd.WorkingDirectory()
-	if c.Dir == "" {
-		// TODO(windows): conditionally use "C:\"
-		c.Dir = "/"
-	} else if !filepath.IsAbs(c.Dir) {
-		return nil, fmt.Errorf("working directory %q is not absolute", c.Dir)
-	}
-
-	return c, nil
+func (l *logger) Fatal(ctx context.Context, err error) {
+	l.Error(ctx, err)
+	os.Exit(1)
 }
 
 func readCatalog(r io.Reader) (catalog.Catalog, error) {
 	msg, err := capnp.NewDecoder(r).Decode()
 	if err != nil {
-		return catalog.Catalog{}, err
+		return catalog.Catalog{}, fmt.Errorf("read catalog: %v", err)
 	}
-	return catalog.ReadRootCatalog(msg)
+	c, err := catalog.ReadRootCatalog(msg)
+	if err != nil {
+		return catalog.Catalog{}, fmt.Errorf("read catalog: %v", err)
+	}
+	return c, nil
 }

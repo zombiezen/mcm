@@ -3,7 +3,7 @@ go_binary(
     srcs = glob(["*.go"]),
     deps = [
         "//:catalog",
-        "//internal/depgraph:go_default_library",
+        "//exec/execlib:go_default_library",
         "//third_party/golang/capnproto:go_default_library",
     ],
 )

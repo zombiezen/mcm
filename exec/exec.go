@@ -78,15 +78,9 @@ type realOS struct {
 	log         *logger
 }
 
-func (o *realOS) Exists(path string) (bool, error) {
-	_, err := os.Lstat(path)
-	if err == nil {
-		return true, nil
-	}
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	return false, err
+func (o *realOS) Lstat(path string) (os.FileInfo, error) {
+	// Allow stat even when simulated.
+	return os.Lstat(path)
 }
 
 func (o *realOS) WriteFile(path string, content []byte, mode os.FileMode) error {
@@ -94,6 +88,20 @@ func (o *realOS) WriteFile(path string, content []byte, mode os.FileMode) error 
 		return nil
 	}
 	return ioutil.WriteFile(path, content, mode)
+}
+
+func (o *realOS) Mkdir(path string, mode os.FileMode) error {
+	if o.simulate {
+		return nil
+	}
+	return os.Mkdir(path, mode)
+}
+
+func (o *realOS) Remove(path string) error {
+	if o.simulate {
+		return nil
+	}
+	return os.Remove(path)
 }
 
 func (o *realOS) Run(ctx context.Context, cmd *exec.Cmd) (output []byte, err error) {

@@ -19,16 +19,19 @@ struct Resource {
   # The resource's identifier, used for dependencies.
   # The identifier should be unique within a catalog.
 
-  comment @3 :Text;
+  comment @1 :Text;
   # An optional human-readable description of the resource for use in
   # error and progress messages.
 
-  dependencies @1 :List(ResourceId);
+  dependencies @2 :List(ResourceId);
   # Resources that must be applied before this resource can be applied.
 
   union {
-    file @2 :File;
-    exec @4 :Exec;
+    noop @3 :Void;
+    # Does nothing.  Mainly to give the resource a safe default.
+
+    file @4 :File;
+    exec @5 :Exec;
   }
 }
 
@@ -39,18 +42,19 @@ struct File @0x8dc4ac52b2962163 {
   # An absolute OS-specific file path.
 
   union {
-    absent @1 :Void;
     plain :group {
-      content @2 :Data;
+      content @1 :Data;
       # Byte content of the file.  If null, then file content is
-      # untouched by the capo, but it is an error if the file does not
-      # exist.
+      # untouched by the executor, but it is an error if the file does
+      # not exist.
 
-      mode @3 :Mode;
+      mode @2 :Mode;
     }
     directory :group {
-      mode @4 :Mode;
+      mode @3 :Mode;
     }
+
+    absent @4 :Void;
   }
 
   struct Mode {

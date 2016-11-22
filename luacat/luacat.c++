@@ -280,6 +280,9 @@ namespace {
     }
 
     switch (typeId) {
+    case 0:
+      res.setNoop();
+      break;
     case fileResId:
       {
         auto f = res.initFile();
@@ -310,6 +313,13 @@ namespace {
     luaL_newlibtable(state, mcmlib);
     lua_pushvalue(state, lua_upvalueindex(1));
     luaL_setfuncs(state, mcmlib, 1);
+
+    lua_newtable(state);
+    lua_createtable(state, 0, 1);  // new metatable
+    pushResourceType(state, 0);
+    lua_setfield(state, -2, resourceTypeMetaKey);  // metatable[resourceTypeMetaKey] = TOP
+    lua_setmetatable(state, -2);  // pop metatable
+    lua_setfield(state, -2, "noop");  // mcm.noop = TOP
     return 1;
   }
 

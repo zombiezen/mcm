@@ -53,6 +53,11 @@ struct File @0x8dc4ac52b2962163 {
     directory :group {
       mode @3 :Mode;
     }
+    symlink :group {
+      target @5 :Text;
+      # Where the link should point to.  This may be an absolute path or
+      # a path relative to the link.
+    }
 
     absent @4 :Void;
   }

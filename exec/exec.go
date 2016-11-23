@@ -29,16 +29,22 @@ func usage() {
 
 func main() {
 	log := new(logger)
-	o := &realOS{log: log}
 	app := &execlib.Applier{
-		OS:  o,
 		Log: log,
 	}
 	flag.BoolVar(&app.Unconditional, "skip-conditions", false, "whether to skip conditions")
-	flag.BoolVar(&o.simulate, "n", false, "dry-run")
+	simulate := flag.Bool("n", false, "dry-run")
 	flag.BoolVar(&log.quiet, "q", false, "suppress info messages and failure output")
-	flag.BoolVar(&o.logCommands, "s", false, "show commands run in the log")
+	logCommands := flag.Bool("s", false, "show commands run in the log")
 	flag.Parse()
+	if *simulate {
+		app.OS = simulatedOS{}
+	} else {
+		app.OS = realOS{}
+	}
+	if *logCommands {
+		app.OS = osLogger{OS: app.OS, log: log}
+	}
 
 	ctx := context.Background()
 	var cat catalog.Catalog
@@ -72,46 +78,69 @@ func main() {
 	}
 }
 
-type realOS struct {
-	simulate    bool
-	logCommands bool
-	log         *logger
+type realOS struct{}
+
+func (realOS) Lstat(path string) (os.FileInfo, error) {
+	return os.Lstat(path)
 }
 
-func (o *realOS) Lstat(path string) (os.FileInfo, error) {
+func (realOS) WriteFile(path string, content []byte, mode os.FileMode) error {
+	return ioutil.WriteFile(path, content, mode)
+}
+
+func (realOS) Mkdir(path string, mode os.FileMode) error {
+	return os.Mkdir(path, mode)
+}
+
+func (realOS) Remove(path string) error {
+	return os.Remove(path)
+}
+
+func (realOS) Run(ctx context.Context, cmd *exec.Cmd) (output []byte, err error) {
+	return cmd.CombinedOutput()
+}
+
+type osLogger struct {
+	execlib.OS
+	log *logger
+}
+
+func (o osLogger) Mkdir(path string, mode os.FileMode) error {
+	o.log.Infof(context.TODO(), "mkdir %s", path)
+	return o.OS.Mkdir(path, mode)
+}
+
+func (o osLogger) Remove(path string) error {
+	o.log.Infof(context.TODO(), "rm %s", path)
+	return o.OS.Remove(path)
+}
+
+func (o osLogger) Run(ctx context.Context, cmd *exec.Cmd) (output []byte, err error) {
+	o.log.Infof(ctx, "exec %s", strings.Join(cmd.Args, " "))
+	return o.OS.Run(ctx, cmd)
+}
+
+type simulatedOS struct{}
+
+func (simulatedOS) Lstat(path string) (os.FileInfo, error) {
 	// Allow stat even when simulated.
 	return os.Lstat(path)
 }
 
-func (o *realOS) WriteFile(path string, content []byte, mode os.FileMode) error {
-	if o.simulate {
-		return nil
-	}
-	return ioutil.WriteFile(path, content, mode)
+func (simulatedOS) WriteFile(path string, content []byte, mode os.FileMode) error {
+	return nil
 }
 
-func (o *realOS) Mkdir(path string, mode os.FileMode) error {
-	if o.simulate {
-		return nil
-	}
-	return os.Mkdir(path, mode)
+func (simulatedOS) Mkdir(path string, mode os.FileMode) error {
+	return nil
 }
 
-func (o *realOS) Remove(path string) error {
-	if o.simulate {
-		return nil
-	}
-	return os.Remove(path)
+func (simulatedOS) Remove(path string) error {
+	return nil
 }
 
-func (o *realOS) Run(ctx context.Context, cmd *exec.Cmd) (output []byte, err error) {
-	if o.logCommands {
-		o.log.Infof(ctx, "exec %s", strings.Join(cmd.Args, " "))
-	}
-	if o.simulate {
-		return nil, nil
-	}
-	return cmd.CombinedOutput()
+func (simulatedOS) Run(ctx context.Context, cmd *exec.Cmd) (output []byte, err error) {
+	return nil, nil
 }
 
 type logger struct {

@@ -15,9 +15,8 @@ import (
 )
 
 type Applier struct {
-	Input io.Reader
-	Log   Logger
-	OS    OS
+	Log Logger
+	OS  OS
 }
 
 type Logger interface {

@@ -32,7 +32,6 @@ func main() {
 	app := &execlib.Applier{
 		Log: log,
 	}
-	flag.BoolVar(&app.Unconditional, "skip-conditions", false, "whether to skip conditions")
 	simulate := flag.Bool("n", false, "dry-run")
 	flag.BoolVar(&log.quiet, "q", false, "suppress info messages and failure output")
 	logCommands := flag.Bool("s", false, "show commands run in the log")

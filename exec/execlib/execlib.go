@@ -18,10 +18,6 @@ type Applier struct {
 	Input io.Reader
 	Log   Logger
 	OS    OS
-
-	// Unconditional skips evaluating any conditions, assuming that
-	// everything must be applied.
-	Unconditional bool
 }
 
 type Logger interface {
@@ -160,51 +156,49 @@ func (app *Applier) applyFile(ctx context.Context, f catalog.File) error {
 }
 
 func (app *Applier) applyExec(ctx context.Context, e catalog.Exec) error {
-	if !app.Unconditional {
-		switch e.Condition().Which() {
-		case catalog.Exec_condition_Which_always:
-			// Continue.
-		case catalog.Exec_condition_Which_onlyIf:
-			cond, err := e.Condition().OnlyIf()
-			if err != nil {
-				return errorf("condition: %v", err)
-			}
-			cmd, err := buildCommand(cond)
-			if err != nil {
-				return errorf("condition: %v", err)
-			}
-			out, err := app.OS.Run(ctx, cmd)
-			if _, exitFail := err.(*exec.ExitError); exitFail {
-				return nil
-			} else if err != nil {
-				return errorWithOutput(out, errorf("condition: %v", err))
-			}
-		case catalog.Exec_condition_Which_unless:
-			cond, err := e.Condition().Unless()
-			if err != nil {
-				return errorf("condition: %v", err)
-			}
-			cmd, err := buildCommand(cond)
-			if err != nil {
-				return errorf("condition: %v", err)
-			}
-			out, err := app.OS.Run(ctx, cmd)
-			if err == nil {
-				return nil
-			} else if _, exitFail := err.(*exec.ExitError); !exitFail {
-				return errorWithOutput(out, errorf("condition: %v", err))
-			}
-		case catalog.Exec_condition_Which_fileAbsent:
-			path, _ := e.Condition().FileAbsent()
-			if _, err := app.OS.Lstat(path); err == nil {
-				// File exists; skip command.
-				return nil
-			} else if !os.IsNotExist(err) {
-				return errorf("condition: %v", err)
-			}
-		default:
-			return errorf("unknown condition %v", e.Condition().Which())
+	switch e.Condition().Which() {
+	case catalog.Exec_condition_Which_always:
+		// Continue.
+	case catalog.Exec_condition_Which_onlyIf:
+		cond, err := e.Condition().OnlyIf()
+		if err != nil {
+			return errorf("condition: %v", err)
 		}
+		cmd, err := buildCommand(cond)
+		if err != nil {
+			return errorf("condition: %v", err)
+		}
+		out, err := app.OS.Run(ctx, cmd)
+		if _, exitFail := err.(*exec.ExitError); exitFail {
+			return nil
+		} else if err != nil {
+			return errorWithOutput(out, errorf("condition: %v", err))
+		}
+	case catalog.Exec_condition_Which_unless:
+		cond, err := e.Condition().Unless()
+		if err != nil {
+			return errorf("condition: %v", err)
+		}
+		cmd, err := buildCommand(cond)
+		if err != nil {
+			return errorf("condition: %v", err)
+		}
+		out, err := app.OS.Run(ctx, cmd)
+		if err == nil {
+			return nil
+		} else if _, exitFail := err.(*exec.ExitError); !exitFail {
+			return errorWithOutput(out, errorf("condition: %v", err))
+		}
+	case catalog.Exec_condition_Which_fileAbsent:
+		path, _ := e.Condition().FileAbsent()
+		if _, err := app.OS.Lstat(path); err == nil {
+			// File exists; skip command.
+			return nil
+		} else if !os.IsNotExist(err) {
+			return errorf("condition: %v", err)
+		}
+	default:
+		return errorf("unknown condition %v", e.Condition().Which())
 	}
 
 	main, err := e.Command()

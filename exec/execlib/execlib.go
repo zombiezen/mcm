@@ -262,8 +262,7 @@ func buildCommand(cmd catalog.Exec_Command) (*exec.Cmd, error) {
 
 	c.Dir, _ = cmd.WorkingDirectory()
 	if c.Dir == "" {
-		// TODO(windows): conditionally use "C:\"
-		c.Dir = "/"
+		c.Dir = fsRoot
 	} else if !filepath.IsAbs(c.Dir) {
 		return nil, errorf("working directory %q is not absolute", c.Dir)
 	}

@@ -11,6 +11,12 @@ import (
 	"os"
 )
 
+// System consists of the top-level interfaces in this package.
+type System interface {
+	FS
+	Runner
+}
+
 // An FS provides access to a filesystem.  Paths are filesystem-specific
 // and are generally required to be absolute.  An FS must be safe to
 // call from multiple goroutines.
@@ -87,8 +93,10 @@ func WriteFile(ctx context.Context, fs FS, path string, content []byte, mode os.
 	return nil
 }
 
-// Stub returns errors for all of the FS and Runner methods.
+// Stub returns errors for all of the System methods.
 type Stub struct{}
+
+var _ System = Stub{}
 
 func (Stub) Lstat(ctx context.Context, path string) (os.FileInfo, error) {
 	return nil, &os.PathError{Op: "lstat", Path: path, Err: errNotImplemented}
@@ -106,7 +114,7 @@ func (Stub) Symlink(ctx context.Context, oldname, newname string) error {
 	return &os.LinkError{Op: "symlink", Old: oldname, New: newname, Err: errNotImplemented}
 }
 
-func (Stub) CreateFile(ctx context.Context, path string, mode os.FileMode) (io.WriteCloser, error) {
+func (Stub) CreateFile(ctx context.Context, path string, mode os.FileMode) (FileWriter, error) {
 	return nil, &os.PathError{Op: "open", Path: path, Err: errNotImplemented}
 }
 

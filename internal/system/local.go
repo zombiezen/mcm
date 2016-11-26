@@ -9,6 +9,8 @@ import (
 // Local implements FS and Runner by calling to the os package.
 type Local struct{}
 
+var _ System = Local{}
+
 // Lstat calls os.Lstat.
 func (Local) Lstat(ctx context.Context, path string) (os.FileInfo, error) {
 	return os.Lstat(path)

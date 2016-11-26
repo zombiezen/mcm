@@ -4,6 +4,7 @@ go_binary(
     deps = [
         "//:catalog",
         "//exec/execlib:go_default_library",
+        "//internal/system:go_default_library",
         "//third_party/golang/capnproto:go_default_library",
     ],
 )

@@ -3,18 +3,18 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/zombiezen/mcm/catalog"
 	"github.com/zombiezen/mcm/exec/execlib"
+	"github.com/zombiezen/mcm/internal/system"
 	"github.com/zombiezen/mcm/third_party/golang/capnproto"
 )
 
@@ -37,12 +37,15 @@ func main() {
 	logCommands := flag.Bool("s", false, "show commands run in the log")
 	flag.Parse()
 	if *simulate {
-		app.OS = simulatedOS{}
+		app.System = simulatedSystem{}
 	} else {
-		app.OS = realOS{}
+		app.System = system.Local{}
 	}
 	if *logCommands {
-		app.OS = osLogger{OS: app.OS, log: log}
+		app.System = sysLogger{
+			System: app.System,
+			log:    log,
+		}
 	}
 
 	ctx := context.Background()
@@ -77,69 +80,118 @@ func main() {
 	}
 }
 
-type realOS struct{}
-
-func (realOS) Lstat(path string) (os.FileInfo, error) {
-	return os.Lstat(path)
-}
-
-func (realOS) WriteFile(path string, content []byte, mode os.FileMode) error {
-	return ioutil.WriteFile(path, content, mode)
-}
-
-func (realOS) Mkdir(path string, mode os.FileMode) error {
-	return os.Mkdir(path, mode)
-}
-
-func (realOS) Remove(path string) error {
-	return os.Remove(path)
-}
-
-func (realOS) Run(ctx context.Context, cmd *exec.Cmd) (output []byte, err error) {
-	return cmd.CombinedOutput()
-}
-
-type osLogger struct {
-	execlib.OS
+type sysLogger struct {
+	system.System
 	log *logger
 }
 
-func (o osLogger) Mkdir(path string, mode os.FileMode) error {
-	o.log.Infof(context.TODO(), "mkdir %s", path)
-	return o.OS.Mkdir(path, mode)
+func (l sysLogger) Mkdir(ctx context.Context, path string, mode os.FileMode) error {
+	l.log.Infof(ctx, "mkdir %s", path)
+	return l.System.Mkdir(ctx, path, mode)
 }
 
-func (o osLogger) Remove(path string) error {
-	o.log.Infof(context.TODO(), "rm %s", path)
-	return o.OS.Remove(path)
+func (l sysLogger) Remove(ctx context.Context, path string) error {
+	l.log.Infof(ctx, "rm %s", path)
+	return l.System.Remove(ctx, path)
 }
 
-func (o osLogger) Run(ctx context.Context, cmd *exec.Cmd) (output []byte, err error) {
-	o.log.Infof(ctx, "exec %s", strings.Join(cmd.Args, " "))
-	return o.OS.Run(ctx, cmd)
+func (l sysLogger) Symlink(ctx context.Context, oldname, newname string) error {
+	l.log.Infof(ctx, "ln -s %s %s", oldname, newname)
+	return l.System.Symlink(ctx, oldname, newname)
 }
 
-type simulatedOS struct{}
+func (l sysLogger) CreateFile(ctx context.Context, path string, mode os.FileMode) (system.FileWriter, error) {
+	l.log.Infof(ctx, "create file %s", path)
+	return l.System.CreateFile(ctx, path, mode)
+}
 
-func (simulatedOS) Lstat(path string) (os.FileInfo, error) {
+func (l sysLogger) Run(ctx context.Context, cmd *system.Cmd) (output []byte, err error) {
+	l.log.Infof(ctx, "exec %s", strings.Join(cmd.Args, " "))
+	return l.System.Run(ctx, cmd)
+}
+
+type simulatedSystem struct{}
+
+func (simulatedSystem) Lstat(ctx context.Context, path string) (os.FileInfo, error) {
 	// Allow stat even when simulated.
 	return os.Lstat(path)
 }
 
-func (simulatedOS) WriteFile(path string, content []byte, mode os.FileMode) error {
+func (simulatedSystem) Mkdir(ctx context.Context, path string, mode os.FileMode) error {
 	return nil
 }
 
-func (simulatedOS) Mkdir(path string, mode os.FileMode) error {
+func (simulatedSystem) Remove(ctx context.Context, path string) error {
 	return nil
 }
 
-func (simulatedOS) Remove(path string) error {
+func (simulatedSystem) Symlink(ctx context.Context, oldname, newname string) error {
 	return nil
 }
 
-func (simulatedOS) Run(ctx context.Context, cmd *exec.Cmd) (output []byte, err error) {
+func (simulatedSystem) CreateFile(ctx context.Context, path string, mode os.FileMode) (system.FileWriter, error) {
+	if _, err := os.Lstat(path); err == nil {
+		return nil, &os.PathError{Op: "open", Path: path, Err: os.ErrExist}
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	// TODO(someday): ensure parent directory exists and is writable
+	return discardWriter{}, nil
+}
+
+func (simulatedSystem) OpenFile(ctx context.Context, path string) (system.File, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	return &readOnlyFile{f: f}, nil
+}
+
+func (simulatedSystem) Run(ctx context.Context, cmd *system.Cmd) (output []byte, err error) {
 	return nil, nil
+}
+
+type readOnlyFile struct {
+	f     *os.File
+	wrote bool
+}
+
+func (ro *readOnlyFile) Read(p []byte) (int, error) {
+	if ro.wrote {
+		return 0, errors.New("read after simulated write")
+	}
+	return ro.f.Read(p)
+}
+
+func (ro *readOnlyFile) Write(p []byte) (int, error) {
+	ro.wrote = true
+	return len(p), nil
+}
+
+func (ro *readOnlyFile) Seek(offset int64, whence int) (int64, error) {
+	if ro.wrote {
+		return 0, errors.New("seek after simulated write")
+	}
+	return ro.f.Seek(offset, whence)
+}
+
+func (ro *readOnlyFile) Truncate(size int64) error {
+	ro.wrote = true
+	return nil
+}
+
+func (ro *readOnlyFile) Close() error {
+	return ro.f.Close()
+}
+
+type discardWriter struct{}
+
+func (discardWriter) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+
+func (discardWriter) Close() error {
+	return nil
 }
 
 type logger struct {

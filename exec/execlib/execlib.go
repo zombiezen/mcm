@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,24 +11,17 @@ import (
 
 	"github.com/zombiezen/mcm/catalog"
 	"github.com/zombiezen/mcm/internal/depgraph"
+	"github.com/zombiezen/mcm/internal/system"
 )
 
 type Applier struct {
-	Log Logger
-	OS  OS
+	System system.System
+	Log    Logger
 }
 
 type Logger interface {
 	Infof(ctx context.Context, format string, args ...interface{})
 	Error(ctx context.Context, err error)
-}
-
-type OS interface {
-	Lstat(path string) (os.FileInfo, error)
-	WriteFile(path string, content []byte, mode os.FileMode) error
-	Mkdir(path string, mode os.FileMode) error
-	Remove(path string) error
-	Run(context.Context, *exec.Cmd) (output []byte, err error)
 }
 
 func (app *Applier) Apply(ctx context.Context, c catalog.Catalog) error {
@@ -116,11 +108,11 @@ func (app *Applier) applyFile(ctx context.Context, f catalog.File) error {
 				return errorf("read content from catalog: %v", err)
 			}
 			// TODO(soon): respect file mode
-			if err := app.OS.WriteFile(path, content, 0666); err != nil {
+			if err := system.WriteFile(ctx, app.System, path, content, 0666); err != nil {
 				return err
 			}
 		} else {
-			info, err := app.OS.Lstat(path)
+			info, err := app.System.Lstat(ctx, path)
 			if err != nil {
 				return err
 			}
@@ -131,11 +123,11 @@ func (app *Applier) applyFile(ctx context.Context, f catalog.File) error {
 		}
 	case catalog.File_Which_directory:
 		// TODO(soon): respect file mode
-		if err := app.OS.Mkdir(path, 0777); err == nil || !os.IsExist(err) {
+		if err := app.System.Mkdir(ctx, path, 0777); err == nil || !os.IsExist(err) {
 			return err
 		}
 		// Ensure that what exists is a directory.
-		info, err := app.OS.Lstat(path)
+		info, err := app.System.Lstat(ctx, path)
 		if err != nil {
 			return errorf("determine state of %s: %v", path, err)
 		}
@@ -144,7 +136,7 @@ func (app *Applier) applyFile(ctx context.Context, f catalog.File) error {
 			return errorf("%s is not a directory", path)
 		}
 	case catalog.File_Which_absent:
-		err := app.OS.Remove(path)
+		err := app.System.Remove(ctx, path)
 		if err == nil || !os.IsNotExist(err) {
 			return err
 		}
@@ -167,7 +159,7 @@ func (app *Applier) applyExec(ctx context.Context, e catalog.Exec) error {
 		if err != nil {
 			return errorf("condition: %v", err)
 		}
-		out, err := app.OS.Run(ctx, cmd)
+		out, err := app.System.Run(ctx, cmd)
 		if _, exitFail := err.(*exec.ExitError); exitFail {
 			return nil
 		} else if err != nil {
@@ -182,7 +174,7 @@ func (app *Applier) applyExec(ctx context.Context, e catalog.Exec) error {
 		if err != nil {
 			return errorf("condition: %v", err)
 		}
-		out, err := app.OS.Run(ctx, cmd)
+		out, err := app.System.Run(ctx, cmd)
 		if err == nil {
 			return nil
 		} else if _, exitFail := err.(*exec.ExitError); !exitFail {
@@ -190,7 +182,7 @@ func (app *Applier) applyExec(ctx context.Context, e catalog.Exec) error {
 		}
 	case catalog.Exec_condition_Which_fileAbsent:
 		path, _ := e.Condition().FileAbsent()
-		if _, err := app.OS.Lstat(path); err == nil {
+		if _, err := app.System.Lstat(ctx, path); err == nil {
 			// File exists; skip command.
 			return nil
 		} else if !os.IsNotExist(err) {
@@ -208,15 +200,15 @@ func (app *Applier) applyExec(ctx context.Context, e catalog.Exec) error {
 	if err != nil {
 		return errorf("command: %v", err)
 	}
-	out, err := app.OS.Run(ctx, cmd)
+	out, err := app.System.Run(ctx, cmd)
 	if err != nil {
 		return errorWithOutput(out, errorf("command: %v", err))
 	}
 	return nil
 }
 
-func buildCommand(cmd catalog.Exec_Command) (*exec.Cmd, error) {
-	var c *exec.Cmd
+func buildCommand(cmd catalog.Exec_Command) (*system.Cmd, error) {
+	var c *system.Cmd
 	switch cmd.Which() {
 	case catalog.Exec_Command_Which_argv:
 		argList, _ := cmd.Argv()
@@ -234,7 +226,7 @@ func buildCommand(cmd catalog.Exec_Command) (*exec.Cmd, error) {
 		if !filepath.IsAbs(argv[0]) {
 			return nil, errorf("argv[0] (%q) is not an absolute path", argv[0])
 		}
-		c = &exec.Cmd{
+		c = &system.Cmd{
 			Path: argv[0],
 			Args: argv,
 		}
@@ -262,7 +254,7 @@ func buildCommand(cmd catalog.Exec_Command) (*exec.Cmd, error) {
 
 	c.Dir, _ = cmd.WorkingDirectory()
 	if c.Dir == "" {
-		c.Dir = fsRoot
+		c.Dir = system.LocalRoot
 	} else if !filepath.IsAbs(c.Dir) {
 		return nil, errorf("working directory %q is not absolute", c.Dir)
 	}

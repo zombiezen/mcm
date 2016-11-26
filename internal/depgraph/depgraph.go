@@ -90,11 +90,11 @@ func (g *Graph) Mark(id uint64) {
 	for _, dep := range g.deps[id] {
 		n := g.queued[dep]
 		n--
-		if n == 0 {
+		if n > 0 {
+			g.queued[dep] = n
+		} else if n == 0 {
 			delete(g.queued, dep)
 			g.ready = append(g.ready, dep)
-		} else {
-			g.queued[dep] = n
 		}
 	}
 }
@@ -116,19 +116,20 @@ func (g *Graph) MarkFailure(id uint64) []uint64 {
 		}
 		return false
 	}
-	stk := append([]uint64(nil), g.deps[id]...) // copy
-	for len(stk) > 0 {
-		end := len(stk) - 1
-		curr := stk[end]
-		stk = stk[:end]
-		aborted = append(aborted, curr)
-		delete(g.queued, curr)
-
-		for _, dep := range g.deps[curr] {
-			if !visited(dep) {
+	var stk []uint64
+	for {
+		for _, dep := range g.deps[id] {
+			if g.queued[dep] != 0 && !visited(dep) {
 				stk = append(stk, dep)
 			}
 		}
+		if len(stk) == 0 {
+			break
+		}
+		end := len(stk) - 1
+		stk, id = stk[:end], stk[end]
+		aborted = append(aborted, id)
+		delete(g.queued, id)
 	}
 	return aborted
 }

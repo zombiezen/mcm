@@ -17,6 +17,8 @@ import (
 	"github.com/zombiezen/mcm/internal/system"
 )
 
+const Root = system.LocalRoot
+
 var epoch = time.Date(2016, time.November, 24, 0, 0, 0, 0, time.UTC)
 
 // System is an in-memory implementation of FS and Runner.

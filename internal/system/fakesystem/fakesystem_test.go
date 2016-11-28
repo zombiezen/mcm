@@ -3,6 +3,7 @@ package fakesystem
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -120,6 +121,67 @@ func TestRemove(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRun(t *testing.T) {
+	binDir := filepath.Join(Root, "bin")
+	progPath := filepath.Join(binDir, "program")
+	newSystem := func(ctx context.Context, log logger, prog Program) (*System, error) {
+		sys := new(System)
+		if err := mkdir(ctx, log, sys, binDir); err != nil {
+			return nil, err
+		}
+		log.Logf("sys.Mkprogram(%q, ...)", progPath)
+		if err := sys.Mkprogram(progPath, prog); err != nil {
+			return nil, fmt.Errorf("sys.Mkprogram(%q, ...): %v", progPath, err)
+		}
+		return sys, nil
+	}
+	t.Run("called", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		called := false
+		sys, err := newSystem(ctx, t, func(ctx context.Context, pc *ProgramContext) int {
+			called = true
+			return 0
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Log("sys.Run(...)")
+		_, err = sys.Run(ctx, &system.Cmd{
+			Path: progPath,
+			Args: []string{progPath},
+			Env:  []string{},
+			Dir:  Root,
+		})
+		if !called {
+			t.Error("program function not called")
+		}
+		if err != nil {
+			t.Errorf("sys.Run(...): %v", err)
+		}
+	})
+	t.Run("fail exit", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		sys, err := newSystem(ctx, t, func(ctx context.Context, pc *ProgramContext) int {
+			return 1
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Log("sys.Run(...)")
+		_, err = sys.Run(ctx, &system.Cmd{
+			Path: progPath,
+			Args: []string{progPath},
+			Env:  []string{},
+			Dir:  Root,
+		})
+		if _, ok := err.(*exec.ExitError); !ok {
+			t.Errorf("sys.Run(...) = _, %v; want os/exec.ExitError", err)
+		}
+	})
 }
 
 type logger interface {

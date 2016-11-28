@@ -13,10 +13,10 @@ func TestZero(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sys := new(System)
-	if info, err := sys.Lstat(ctx, system.LocalRoot); err != nil {
-		t.Errorf("sys.Lstat(ctx, %q) = _, %v", system.LocalRoot, err)
+	if info, err := sys.Lstat(ctx, Root); err != nil {
+		t.Errorf("sys.Lstat(ctx, %q) = _, %v", Root, err)
 	} else if !info.IsDir() || !info.Mode().IsDir() {
-		t.Errorf("sys.Lstat(ctx, %q).Mode() = %v, nil; want directory", system.LocalRoot, info.Mode())
+		t.Errorf("sys.Lstat(ctx, %q).Mode() = %v, nil; want directory", Root, info.Mode())
 	}
 }
 
@@ -25,7 +25,7 @@ func TestMkdir(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sys := new(System)
-		dirpath := filepath.Join(system.LocalRoot, "foo")
+		dirpath := filepath.Join(Root, "foo")
 		if err := mkdir(ctx, t, sys, dirpath); err != nil {
 			t.Error(err)
 		}
@@ -39,7 +39,7 @@ func TestMkdir(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sys := new(System)
-		dirpath1 := filepath.Join(system.LocalRoot, "foo")
+		dirpath1 := filepath.Join(Root, "foo")
 		if err := mkdir(ctx, t, sys, dirpath1); err != nil {
 			t.Error(err)
 		}
@@ -56,9 +56,9 @@ func TestMkdir(t *testing.T) {
 }
 
 func TestRemove(t *testing.T) {
-	emptyDirPath := filepath.Join(system.LocalRoot, "emptydir")
-	filePath := filepath.Join(system.LocalRoot, "file")
-	filledDirPath := filepath.Join(system.LocalRoot, "nonemptydir")
+	emptyDirPath := filepath.Join(Root, "emptydir")
+	filePath := filepath.Join(Root, "file")
+	filledDirPath := filepath.Join(Root, "nonemptydir")
 	dirFilePath := filepath.Join(filledDirPath, "baz")
 	newSystem := func(ctx context.Context, log logger) (*System, error) {
 		sys := new(System)
@@ -85,8 +85,8 @@ func TestRemove(t *testing.T) {
 		{path: emptyDirPath},
 		{path: filePath},
 		{path: filledDirPath, fails: true},
-		{path: filepath.Join(system.LocalRoot, "nonexistent"), fails: true, isNotExist: true},
-		{path: system.LocalRoot, fails: true},
+		{path: filepath.Join(Root, "nonexistent"), fails: true, isNotExist: true},
+		{path: Root, fails: true},
 	}
 	for i := range tests {
 		test := tests[i]

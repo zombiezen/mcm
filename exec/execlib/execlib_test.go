@@ -18,10 +18,12 @@ import (
 	"bytes"
 	"context"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/zombiezen/mcm/catalog"
+	"github.com/zombiezen/mcm/internal/system"
 	"github.com/zombiezen/mcm/internal/system/fakesystem"
 	"github.com/zombiezen/mcm/third_party/golang/capnproto"
 	"github.com/zombiezen/mcm/third_party/golang/capnproto/pogs"
@@ -85,6 +87,124 @@ func TestFile(t *testing.T) {
 	}
 }
 
+func TestLink(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	fpath := filepath.Join(fakesystem.Root, "foo")
+	lpath := filepath.Join(fakesystem.Root, "link")
+	cat, err := (&catalogStruct{
+		Resources: []resource{
+			{
+				ID:      42,
+				Comment: "file",
+				Which:   catalog.Resource_Which_file,
+				File:    newPlainFile(fpath, []byte("Hello")),
+			},
+			{
+				ID:      100,
+				Deps:    []uint64{42},
+				Comment: "link",
+				Which:   catalog.Resource_Which_file,
+				File:    newSymlinkFile(fpath, lpath),
+			},
+		},
+	}).toCapnp()
+	if err != nil {
+		t.Fatal("catalogStruct.toCapnp():", err)
+	}
+	sys := new(fakesystem.System)
+	app := &Applier{
+		System: sys,
+		Log:    testLogger{t: t},
+	}
+	err = app.Apply(ctx, cat)
+	if err != nil {
+		t.Error("Apply:", err)
+	}
+
+	if info, err := sys.Lstat(ctx, lpath); err == nil {
+		if info.Mode()&os.ModeType != os.ModeSymlink {
+			t.Errorf("sys.Lstat(ctx, %q).Mode() = %v; want symlink", lpath, info.Mode())
+		}
+	} else {
+		t.Errorf("sys.Lstat(ctx, %q): %v", lpath, err)
+	}
+	if target, err := sys.Readlink(ctx, lpath); err == nil {
+		if target != fpath {
+			t.Errorf("sys.Readlink(ctx, %q) = %q; want %q", lpath, target, fpath)
+		}
+	} else {
+		t.Errorf("sys.Readlink(ctx, %q): %v", lpath, err)
+	}
+	if f, err := sys.OpenFile(ctx, lpath); err == nil {
+		defer f.Close()
+		data, err := ioutil.ReadAll(f)
+		if err != nil {
+			t.Errorf("ioutil.ReadAll(sys.OpenFile(ctx, %q)): %v", lpath, err)
+		}
+		if !bytes.Equal(data, []byte("Hello")) {
+			t.Errorf("ioutil.ReadAll(sys.OpenFile(ctx, %q)) = %q; want \"Hello\"", lpath, data)
+		}
+	} else {
+		t.Errorf("sys.OpenFile(ctx, %q): %v", lpath, err)
+	}
+}
+
+func TestRelink(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f1path := filepath.Join(fakesystem.Root, "foo")
+	f2path := filepath.Join(fakesystem.Root, "bar")
+	lpath := filepath.Join(fakesystem.Root, "link")
+	cat, err := (&catalogStruct{
+		Resources: []resource{
+			{
+				ID:      42,
+				Comment: "link",
+				Which:   catalog.Resource_Which_file,
+				File:    newSymlinkFile(f2path, lpath),
+			},
+		},
+	}).toCapnp()
+	if err != nil {
+		t.Fatal("catalogStruct.toCapnp():", err)
+	}
+	sys := new(fakesystem.System)
+	if err := system.WriteFile(ctx, sys, f1path, []byte("File 1"), 0666); err != nil {
+		t.Fatal("WriteFile 1:", err)
+	}
+	if err := system.WriteFile(ctx, sys, f2path, []byte("File 2"), 0666); err != nil {
+		t.Fatal("WriteFile 2:", err)
+	}
+	if err := sys.Symlink(ctx, f1path, lpath); err != nil {
+		t.Fatalf("Symlink %s -> %s: %v", lpath, f1path, err)
+	}
+
+	app := &Applier{
+		System: sys,
+		Log:    testLogger{t: t},
+	}
+	err = app.Apply(ctx, cat)
+	if err != nil {
+		t.Error("Apply:", err)
+	}
+
+	if info, err := sys.Lstat(ctx, lpath); err == nil {
+		if info.Mode()&os.ModeType != os.ModeSymlink {
+			t.Errorf("sys.Lstat(ctx, %q).Mode() = %v; want symlink", lpath, info.Mode())
+		}
+	} else {
+		t.Errorf("sys.Lstat(ctx, %q): %v", lpath, err)
+	}
+	if target, err := sys.Readlink(ctx, lpath); err == nil {
+		if target != f2path {
+			t.Errorf("sys.Readlink(ctx, %q) = %q; want %q", lpath, target, f2path)
+		}
+	} else {
+		t.Errorf("sys.Readlink(ctx, %q): %v", lpath, err)
+	}
+}
+
 type catalogStruct struct {
 	Resources []resource
 }
@@ -127,6 +247,12 @@ type file struct {
 func newPlainFile(path string, content []byte) *file {
 	f := &file{Path: path, Which: catalog.File_Which_plain}
 	f.Plain.Content = content
+	return f
+}
+
+func newSymlinkFile(oldname, newname string) *file {
+	f := &file{Path: newname, Which: catalog.File_Which_symlink}
+	f.Symlink.Target = oldname
 	return f
 }
 

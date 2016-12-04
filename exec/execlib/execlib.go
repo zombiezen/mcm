@@ -149,6 +149,37 @@ func (app *Applier) applyFile(ctx context.Context, f catalog.File) error {
 			// TODO(soon): what kind of node it?
 			return errorf("%s is not a directory", path)
 		}
+	case catalog.File_Which_symlink:
+		target, err := f.Symlink().Target()
+		if err != nil {
+			return errorf("read target from catalog: %v", err)
+		}
+		if err := app.System.Symlink(ctx, target, path); err == nil || !os.IsExist(err) {
+			return err
+		}
+		// Ensure that what exists is a symlink before trying to retarget.
+		info, err := app.System.Lstat(ctx, path)
+		if err != nil {
+			return errorf("determine state of %s: %v", path, err)
+		}
+		if info.Mode()&os.ModeType != os.ModeSymlink {
+			// TODO(soon): what kind of node is it?
+			return errorf("%s is not a symlink", path)
+		}
+		actual, err := app.System.Readlink(ctx, path)
+		if err != nil {
+			return err
+		}
+		if actual == target {
+			// Already the correct link.
+			return nil
+		}
+		if err := app.System.Remove(ctx, path); err != nil {
+			return errorf("retargeting %s: %v", path, err)
+		}
+		if err := app.System.Symlink(ctx, target, path); err != nil {
+			return errorf("retargeting %s: %v", path, err)
+		}
 	case catalog.File_Which_absent:
 		err := app.System.Remove(ctx, path)
 		if err == nil || !os.IsNotExist(err) {

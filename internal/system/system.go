@@ -39,6 +39,7 @@ type FS interface {
 	Mkdir(ctx context.Context, path string, mode os.FileMode) error
 	Remove(ctx context.Context, path string) error
 	Symlink(ctx context.Context, oldname, newname string) error
+	Readlink(ctx context.Context, path string) (string, error)
 
 	// CreateFile creates the named file, returning an error if it already exists.
 	CreateFile(ctx context.Context, path string, mode os.FileMode) (FileWriter, error)
@@ -126,6 +127,10 @@ func (Stub) Remove(ctx context.Context, path string) error {
 
 func (Stub) Symlink(ctx context.Context, oldname, newname string) error {
 	return &os.LinkError{Op: "symlink", Old: oldname, New: newname, Err: errNotImplemented}
+}
+
+func (Stub) Readlink(ctx context.Context, path string) (string, error) {
+	return "", &os.PathError{Op: "readlink", Path: path, Err: errNotImplemented}
 }
 
 func (Stub) CreateFile(ctx context.Context, path string, mode os.FileMode) (FileWriter, error) {

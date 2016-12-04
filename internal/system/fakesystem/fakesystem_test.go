@@ -172,6 +172,11 @@ func TestSymlink(t *testing.T) {
 			t.Errorf("sys.Symlink(ctx, %q, %q): %v", fpath, lpath, err)
 		}
 
+		if target, err := sys.Readlink(ctx, lpath); err != nil {
+			t.Errorf("sys.Readlink(ctx, %q): %v", lpath, err)
+		} else if target != fpath {
+			t.Errorf("sys.Readlink(ctx, %q) = %q; want %q", lpath, target, fpath)
+		}
 		f, err := sys.OpenFile(ctx, lpath)
 		if err != nil {
 			t.Fatalf("sys.OpenFile(ctx, %q): %v", lpath, err)
@@ -199,6 +204,11 @@ func TestSymlink(t *testing.T) {
 			t.Errorf("sys.Symlink(ctx, %q, %q): %v", dpath, lpath, err)
 		}
 
+		if target, err := sys.Readlink(ctx, lpath); err != nil {
+			t.Errorf("sys.Readlink(ctx, %q): %v", lpath, err)
+		} else if target != dpath {
+			t.Errorf("sys.Readlink(ctx, %q) = %q; want %q", lpath, target, dpath)
+		}
 		lfpath := filepath.Join(lpath, filepath.Base(fpath))
 		f, err := sys.OpenFile(ctx, lfpath)
 		if err != nil {

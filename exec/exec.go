@@ -127,8 +127,11 @@ func (l sysLogger) Run(ctx context.Context, cmd *system.Cmd) (output []byte, err
 type simulatedSystem struct{}
 
 func (simulatedSystem) Lstat(ctx context.Context, path string) (os.FileInfo, error) {
-	// Allow stat even when simulated.
-	return os.Lstat(path)
+	return system.Local{}.Lstat(ctx, path)
+}
+
+func (simulatedSystem) Readlink(ctx context.Context, path string) (string, error) {
+	return system.Local{}.Readlink(ctx, path)
 }
 
 func (simulatedSystem) Mkdir(ctx context.Context, path string, mode os.FileMode) error {

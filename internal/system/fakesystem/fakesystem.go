@@ -245,6 +245,29 @@ func (sys *System) Symlink(ctx context.Context, oldname, newname string) error {
 	return nil
 }
 
+func (sys *System) Readlink(ctx context.Context, path string) (string, error) {
+	wrap := pathErrorFunc("readlink", path)
+	path, err := cleanPath(path)
+	if err != nil {
+		return "", wrap(err)
+	}
+
+	defer sys.mu.Unlock()
+	defer sys.stepTime()
+	sys.mu.Lock()
+	sys.init()
+	dir, name := filepath.Split(path)
+	dir = sys.resolve(dir)
+	ent := sys.fs[filepath.Join(dir, name)]
+	if ent == nil {
+		return "", wrap(os.ErrNotExist)
+	}
+	if ent.mode&os.ModeType != os.ModeSymlink {
+		return "", wrap(errors.New("fake system: not a symlink"))
+	}
+	return ent.link, nil
+}
+
 func (sys *System) readdir(path string) []string {
 	var names []string
 	for p := range sys.fs {

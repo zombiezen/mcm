@@ -45,6 +45,11 @@ func (Local) Symlink(ctx context.Context, oldname, newname string) error {
 	return os.Symlink(oldname, newname)
 }
 
+// Readlink calls os.Readlink.
+func (Local) Readlink(ctx context.Context, path string) (string, error) {
+	return os.Readlink(path)
+}
+
 // CreateFile calls os.OpenFile with write-only and exclusive create flags.
 func (Local) CreateFile(ctx context.Context, path string, mode os.FileMode) (FileWriter, error) {
 	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)

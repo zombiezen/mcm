@@ -139,12 +139,19 @@ struct Exec @0x984c97311006f1ca {
     always @1 :Void;
     # Command will always be run.  Used if the command is idempotent.
     onlyIf @2 :Command;
-    # Command will be run only if another command returns a successful exit code.
-    # It is assumed that this command does not do anything destructive and may be run multiple times.
+    # Command will be run only if another command returns a successful
+    # exit code.  It is assumed that this command does not do anything
+    # destructive and may be run multiple times.
     unless @3 :Command;
-    # Command will be run only if another command returns a failure exit code.
-    # It is assumed that this command does not do anything destructive and may be run multiple times.
+    # Command will be run only if another command returns a failure exit
+    # code.  It is assumed that this command does not do anything
+    # destructive and may be run multiple times.
     fileAbsent @4 :Text;
     # Command will be run only if the OS file path does not exist.
+    ifDepsChanged @5 :List(ResourceId);
+    # Command will be run only if one of the resources listed made a
+    # change to the system during application.  It is an error for the
+    # list to be empty or for the list to contain IDs that are not in
+    # the resource's dependencies list.
   }
 }

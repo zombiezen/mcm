@@ -59,6 +59,7 @@ type entry struct {
 	modTime time.Time
 	content []byte
 	program Program
+	link    string
 }
 
 func (sys *System) init() {
@@ -77,63 +78,104 @@ func (sys *System) stepTime() {
 	sys.time = sys.time.Add(1 * time.Second)
 }
 
+func (sys *System) resolve(path string) string {
+	parts := pathParts(path)
+	if len(parts) == 0 {
+		return path
+	}
+	curr, parts := parts[0], parts[1:]
+	for i, p := range parts {
+		var ok bool
+		curr, ok = sys.readlink(filepath.Join(curr, p))
+		if !ok {
+			return filepath.Join(curr, filepath.Join(parts[i+1:]...))
+		}
+	}
+	return curr
+}
+
+func (sys *System) readlink(path string) (string, bool) {
+	for {
+		ent := sys.fs[path]
+		if ent == nil {
+			return path, false
+		}
+		if ent.mode&os.ModeType != os.ModeSymlink {
+			return path, true
+		}
+		if filepath.IsAbs(ent.link) {
+			path = ent.link
+		} else {
+			path = filepath.Join(filepath.Dir(path), ent.link)
+		}
+	}
+}
+
 func (sys *System) Lstat(ctx context.Context, path string) (os.FileInfo, error) {
-	cleanPath, err := cleanPath("lstat", path)
+	wrap := pathErrorFunc("lstat", path)
+	path, err := cleanPath(path)
 	if err != nil {
-		return nil, err
+		return nil, wrap(err)
 	}
 
 	defer sys.mu.Unlock()
 	defer sys.stepTime()
 	sys.mu.Lock()
 	sys.init()
-	ent := sys.fs[cleanPath]
+	dir, name := filepath.Split(path)
+	dir = sys.resolve(dir)
+	ent := sys.fs[filepath.Join(dir, name)]
 	if ent == nil {
-		return nil, &os.PathError{Op: "lstat", Path: path, Err: os.ErrNotExist}
+		return nil, wrap(os.ErrNotExist)
 	}
 	return &stat{
-		name:    filepath.Base(cleanPath),
+		name:    name,
 		mode:    ent.mode,
 		modTime: ent.modTime,
 		size:    len(ent.content),
 	}, nil
 }
 
-func (sys *System) checkParentWritable(op string, path string) error {
-	par := sys.fs[filepath.Dir(path)]
+func (sys *System) mkentry(path string, mode os.FileMode) (*entry, error) {
+	dir, name := filepath.Split(path)
+	dir = sys.resolve(dir)
+	par := sys.fs[dir]
 	if par == nil {
-		return &os.PathError{Op: op, Path: path, Err: os.ErrNotExist}
+		return nil, os.ErrNotExist
 	}
 	if !par.mode.IsDir() {
-		return &os.PathError{Op: op, Path: path, Err: errors.New("fake OS: not a directory")}
+		return nil, errors.New("fake OS: not a directory")
 	}
 	if par.mode&0222 == 0 {
-		return &os.PathError{Op: op, Path: path, Err: os.ErrPermission}
+		return nil, os.ErrPermission
 	}
-	return nil
+	path = filepath.Join(dir, name)
+	if sys.fs[path] != nil {
+		return nil, os.ErrExist
+	}
+	ent := &entry{
+		mode:    mode,
+		modTime: sys.time,
+	}
+	sys.fs[path] = ent
+	return ent, nil
 }
 
 func (sys *System) CreateFile(ctx context.Context, path string, mode os.FileMode) (system.FileWriter, error) {
-	cleanPath, err := cleanPath("open", path)
+	wrap := pathErrorFunc("open", path)
+	path, err := cleanPath(path)
 	if err != nil {
-		return nil, err
+		return nil, wrap(err)
 	}
 
 	defer sys.mu.Unlock()
 	defer sys.stepTime()
 	sys.mu.Lock()
 	sys.init()
-	if sys.fs[cleanPath] != nil {
-		return nil, &os.PathError{Op: "open", Path: path, Err: os.ErrExist}
+	ent, err := sys.mkentry(path, mode&os.ModePerm)
+	if err != nil {
+		return nil, wrap(err)
 	}
-	if err := sys.checkParentWritable("open", path); err != nil {
-		return nil, err
-	}
-	ent := &entry{
-		mode:    mode & os.ModePerm,
-		modTime: sys.time,
-	}
-	sys.fs[cleanPath] = ent
 	return &openFile{
 		mu:  &sys.mu,
 		ent: ent,
@@ -141,21 +183,22 @@ func (sys *System) CreateFile(ctx context.Context, path string, mode os.FileMode
 }
 
 func (sys *System) OpenFile(ctx context.Context, path string) (system.File, error) {
-	cleanPath, err := cleanPath("open", path)
+	wrap := pathErrorFunc("open", path)
+	path, err := cleanPath(path)
 	if err != nil {
-		return nil, err
+		return nil, wrap(err)
 	}
 
 	defer sys.mu.Unlock()
 	defer sys.stepTime()
 	sys.mu.Lock()
 	sys.init()
-	ent := sys.fs[cleanPath]
+	ent := sys.fs[sys.resolve(path)]
 	if ent == nil {
-		return nil, &os.PathError{Op: "open", Path: path, Err: os.ErrNotExist}
+		return nil, wrap(os.ErrNotExist)
 	}
 	if !ent.mode.IsRegular() {
-		return nil, &os.PathError{Op: "open", Path: path, Err: errors.New("fake OS: not a file")}
+		return nil, wrap(errors.New("fake OS: not a file"))
 	}
 	ent.modTime = sys.time
 	return &openFile{
@@ -166,30 +209,40 @@ func (sys *System) OpenFile(ctx context.Context, path string) (system.File, erro
 }
 
 func (sys *System) Mkdir(ctx context.Context, path string, mode os.FileMode) error {
-	cleanPath, err := cleanPath("mkdir", path)
+	wrap := pathErrorFunc("mkdir", path)
+	path, err := cleanPath(path)
 	if err != nil {
-		return err
+		return wrap(err)
 	}
 
 	defer sys.mu.Unlock()
 	defer sys.stepTime()
 	sys.mu.Lock()
 	sys.init()
-	if sys.fs[cleanPath] != nil {
-		return &os.PathError{Op: "mkdir", Path: path, Err: os.ErrExist}
-	}
-	if err := sys.checkParentWritable("mkdir", path); err != nil {
-		return err
-	}
-	sys.fs[cleanPath] = &entry{
-		mode:    os.ModeDir | mode&os.ModePerm,
-		modTime: sys.time,
+	_, err = sys.mkentry(path, os.ModeDir|mode&os.ModePerm)
+	if err != nil {
+		return wrap(err)
 	}
 	return nil
 }
 
 func (sys *System) Symlink(ctx context.Context, oldname, newname string) error {
-	return errors.New("fake system: symlink TODO")
+	wrap := linkErrorFunc("symlink", oldname, newname)
+	newname, err := cleanPath(newname)
+	if err != nil {
+		return wrap(err)
+	}
+
+	defer sys.mu.Unlock()
+	defer sys.stepTime()
+	sys.mu.Lock()
+	sys.init()
+	ent, err := sys.mkentry(newname, os.ModeSymlink|0777)
+	if err != nil {
+		return wrap(err)
+	}
+	ent.link = oldname
+	return nil
 }
 
 func (sys *System) readdir(path string) []string {
@@ -207,76 +260,90 @@ func (sys *System) readdir(path string) []string {
 }
 
 func (sys *System) Remove(ctx context.Context, path string) error {
-	cleanPath, err := cleanPath("remove", path)
+	wrap := pathErrorFunc("remove", path)
+	path, err := cleanPath(path)
 	if err != nil {
-		return err
+		return wrap(err)
 	}
 
 	defer sys.mu.Unlock()
 	defer sys.stepTime()
 	sys.mu.Lock()
 	sys.init()
-	ent := sys.fs[cleanPath]
+	dir, name := filepath.Split(path)
+	dir = sys.resolve(dir)
+	par := sys.fs[dir]
+	if par == nil || !par.mode.IsDir() {
+		return wrap(os.ErrNotExist)
+	}
+	if par.mode&0222 == 0 {
+		return wrap(os.ErrPermission)
+	}
+	path = filepath.Join(dir, name)
+	ent := sys.fs[path]
 	if ent == nil {
-		return &os.PathError{Op: "remove", Path: path, Err: os.ErrNotExist}
+		return wrap(os.ErrNotExist)
 	}
-	if err := sys.checkParentWritable("remove", path); err != nil {
-		return err
+	if ent.mode.IsDir() && len(sys.readdir(path)) > 0 {
+		return wrap(errors.New("fake OS: directory not empty"))
 	}
-	if ent.mode.IsDir() && len(sys.readdir(cleanPath)) > 0 {
-		return &os.PathError{Op: "remove", Path: path, Err: errors.New("fake OS: directory not empty")}
-	}
-	delete(sys.fs, cleanPath)
+	delete(sys.fs, path)
 	return nil
 }
 
 // Mkprogram creates a filesystem entry that calls a program when run.
 func (sys *System) Mkprogram(path string, prog Program) error {
-	cleanPath, err := cleanPath("mkprogram", path)
+	wrap := pathErrorFunc("mkprogram", path)
+	path, err := cleanPath(path)
 	if err != nil {
-		return err
+		return wrap(err)
 	}
 
 	defer sys.mu.Unlock()
 	defer sys.stepTime()
 	sys.mu.Lock()
 	sys.init()
-	if sys.fs[cleanPath] != nil {
-		return &os.PathError{Op: "mkprogram", Path: path, Err: os.ErrExist}
+	ent, err := sys.mkentry(path, 0777)
+	if err != nil {
+		return wrap(err)
 	}
-	if err := sys.checkParentWritable("mkprogram", path); err != nil {
-		return err
-	}
-	sys.fs[cleanPath] = &entry{
-		mode:    0777,
-		modTime: sys.time,
-		program: prog,
-	}
+	ent.program = prog
 	return nil
 }
 
 func (sys *System) Run(ctx context.Context, cmd *system.Cmd) (output []byte, err error) {
-	cleanPath, err := cleanPath("exec", cmd.Path)
+	wrap := pathErrorFunc("exec", cmd.Path)
+	path, err := cleanPath(cmd.Path)
 	if err != nil {
-		return nil, err
+		return nil, wrap(err)
 	}
 
-	defer sys.mu.Unlock()
-	defer sys.stepTime()
 	sys.mu.Lock()
 	sys.init()
-	ent := sys.fs[cleanPath]
-	if ent == nil {
-		return nil, &os.PathError{Op: "exec", Path: cmd.Path, Err: os.ErrNotExist}
+	var (
+		exists  bool
+		mode    os.FileMode
+		program Program
+	)
+	if ent := sys.fs[sys.resolve(path)]; ent != nil {
+		exists = true
+		mode = ent.mode
+		program = ent.program
 	}
-	if ent.mode&0111 == 0 {
-		return nil, &os.PathError{Op: "exec", Path: cmd.Path, Err: os.ErrPermission}
+	sys.stepTime()
+	sys.mu.Unlock()
+
+	if !exists {
+		return nil, wrap(os.ErrNotExist)
 	}
-	if ent.program == nil {
-		return nil, &os.PathError{Op: "exec", Path: cmd.Path, Err: errors.New("fake system: not a program")}
+	if mode&0111 == 0 {
+		return nil, wrap(os.ErrPermission)
+	}
+	if program == nil {
+		return nil, wrap(errors.New("fake system: not a program"))
 	}
 	out := new(bytes.Buffer)
-	exit := ent.program(ctx, &ProgramContext{
+	exit := program(ctx, &ProgramContext{
 		Args:   cmd.Args,
 		Env:    cmd.Env,
 		Dir:    cmd.Dir,
@@ -293,19 +360,66 @@ var (
 	_ system.Runner = (*System)(nil)
 )
 
-func cleanPath(op string, path string) (string, error) {
+func cleanPath(path string) (string, error) {
 	if !filepath.IsAbs(path) {
-		return "", &os.PathError{Op: op, Path: path, Err: errors.New("fake OS: path is not absolute")}
+		return "", errors.New("fake OS: path is not absolute")
 	}
 	return filepath.Clean(path), nil
 }
 
+func pathParts(path string) []string {
+	if !filepath.IsAbs(path) {
+		return nil
+	}
+	vol := filepath.VolumeName(path)
+	path = vol + filepath.Clean(path[len(vol):])
+	n := 1
+	for p := path; ; {
+		d := filepath.Dir(p)
+		if p == d {
+			break
+		}
+		n++
+		p = d
+	}
+	parts := make([]string, n)
+	for i, p := 0, path; i < n; i++ {
+		parts[n-i-1] = filepath.Base(p)
+		p = filepath.Dir(p)
+	}
+	return parts
+}
+
+func pathErrorFunc(op string, path string) func(error) error {
+	return func(e error) error {
+		if e == nil {
+			return nil
+		}
+		return &os.PathError{Op: op, Path: path, Err: e}
+	}
+}
+
+func linkErrorFunc(op string, oldname, newname string) func(error) error {
+	return func(e error) error {
+		if e == nil {
+			return nil
+		}
+		return &os.LinkError{
+			Op:  op,
+			Old: oldname,
+			New: newname,
+			Err: e,
+		}
+	}
+}
+
 type openFile struct {
-	mu     *sync.Mutex // pointer to System.mu
-	ent    *entry
 	data   []byte
 	pos    int
 	closed bool
+
+	mu  *sync.Mutex // pointer to System.mu
+	ent *entry
 }
 
 func (f *openFile) Read(p []byte) (n int, err error) {

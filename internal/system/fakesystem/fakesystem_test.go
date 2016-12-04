@@ -15,8 +15,10 @@
 package fakesystem
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io/ioutil"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -75,6 +77,7 @@ func TestRemove(t *testing.T) {
 	filePath := filepath.Join(Root, "file")
 	filledDirPath := filepath.Join(Root, "nonemptydir")
 	dirFilePath := filepath.Join(filledDirPath, "baz")
+	fileLinkPath := filepath.Join(Root, "link")
 	newSystem := func(ctx context.Context, log logger) (*System, error) {
 		sys := new(System)
 		if err := mkdir(ctx, log, sys, emptyDirPath); err != nil {
@@ -87,6 +90,9 @@ func TestRemove(t *testing.T) {
 			return nil, err
 		}
 		if err := mkfile(ctx, log, sys, dirFilePath, []byte("Goodbye")); err != nil {
+			return nil, err
+		}
+		if err := mklink(ctx, log, sys, dirFilePath, fileLinkPath); err != nil {
 			return nil, err
 		}
 		return sys, nil
@@ -102,6 +108,7 @@ func TestRemove(t *testing.T) {
 		{path: filledDirPath, fails: true},
 		{path: filepath.Join(Root, "nonexistent"), fails: true, isNotExist: true},
 		{path: Root, fails: true},
+		{path: fileLinkPath},
 	}
 	for i := range tests {
 		test := tests[i]
@@ -135,6 +142,77 @@ func TestRemove(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSymlink(t *testing.T) {
+	dpath := filepath.Join(Root, "dir")
+	fpath := filepath.Join(dpath, "foo.txt")
+	const fileContent = "Hello"
+	newSystem := func(ctx context.Context, log logger) (*System, error) {
+		sys := new(System)
+		if err := mkdir(ctx, log, sys, dpath); err != nil {
+			return nil, err
+		}
+		if err := mkfile(ctx, log, sys, fpath, []byte(fileContent)); err != nil {
+			return nil, err
+		}
+		return sys, nil
+	}
+	t.Run("file", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		sys, err := newSystem(ctx, t)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		lpath := filepath.Join(Root, "mylink")
+		t.Logf("sys.Symlink(ctx, %q, %q)", fpath, lpath)
+		if err := sys.Symlink(ctx, fpath, lpath); err != nil {
+			t.Errorf("sys.Symlink(ctx, %q, %q): %v", fpath, lpath, err)
+		}
+
+		f, err := sys.OpenFile(ctx, lpath)
+		if err != nil {
+			t.Fatalf("sys.OpenFile(ctx, %q): %v", lpath, err)
+		}
+		defer f.Close()
+		content, err := ioutil.ReadAll(f)
+		if err != nil {
+			t.Errorf("ioutil.ReadAll(sys.OpenFile(ctx, %q)): %v", lpath, err)
+		}
+		if !bytes.Equal(content, []byte(fileContent)) {
+			t.Errorf("ioutil.ReadAll(sys.OpenFile(ctx, %q)) = %q; want %q", lpath, content, fileContent)
+		}
+	})
+	t.Run("directory", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		sys, err := newSystem(ctx, t)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		lpath := filepath.Join(Root, "mylink")
+		t.Logf("sys.Symlink(ctx, %q, %q)", dpath, lpath)
+		if err := sys.Symlink(ctx, dpath, lpath); err != nil {
+			t.Errorf("sys.Symlink(ctx, %q, %q): %v", dpath, lpath, err)
+		}
+
+		lfpath := filepath.Join(lpath, filepath.Base(fpath))
+		f, err := sys.OpenFile(ctx, lfpath)
+		if err != nil {
+			t.Fatalf("sys.OpenFile(ctx, %q): %v", lfpath, err)
+		}
+		defer f.Close()
+		content, err := ioutil.ReadAll(f)
+		if err != nil {
+			t.Errorf("ioutil.ReadAll(sys.OpenFile(ctx, %q)): %v", lfpath, err)
+		}
+		if !bytes.Equal(content, []byte(fileContent)) {
+			t.Errorf("ioutil.ReadAll(sys.OpenFile(ctx, %q)) = %q; want %q", lfpath, content, fileContent)
+		}
+	})
 }
 
 func TestRun(t *testing.T) {
@@ -198,6 +276,60 @@ func TestRun(t *testing.T) {
 	})
 }
 
+func TestPathParts(t *testing.T) {
+	type testCase struct {
+		path  string
+		parts []string
+	}
+
+	t.Run("unix", func(t *testing.T) {
+		if filepath.Separator != '/' {
+			t.Skip("not a POSIX system")
+		}
+		tests := []testCase{
+			{"", nil},
+			{"foo/bar", nil},
+			{"/", []string{"/"}},
+			{"/foo/bar", []string{"/", "foo", "bar"}},
+		}
+		for _, test := range tests {
+			parts := pathParts(test.path)
+			if !stringSlicesEqual(parts, test.parts) {
+				t.Errorf("pathParts(%q) = %q; want %q", test.path, parts, test.parts)
+			}
+		}
+	})
+	t.Run("windows", func(t *testing.T) {
+		if filepath.Separator != '\\' {
+			t.Skip("not a Windows system")
+		}
+		tests := []testCase{
+			{"", nil},
+			{`foo\bar`, nil},
+			{`C:\`, []string{`C:\`}},
+			{`C:\foo\bar`, []string{`C:\`, "foo", "bar"}},
+		}
+		for _, test := range tests {
+			parts := pathParts(test.path)
+			if !stringSlicesEqual(parts, test.parts) {
+				t.Errorf("pathParts(%q) = %q; want %q", test.path, parts, test.parts)
+			}
+		}
+	})
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 type logger interface {
 	Logf(string, ...interface{})
 }
@@ -214,6 +346,14 @@ func mkfile(ctx context.Context, log logger, fs system.FS, path string, content 
 	log.Logf("system.WriteFile(ctx, sys, %q, %q, 0666)", path, content)
 	if err := system.WriteFile(ctx, fs, path, content, 0666); err != nil {
 		return fmt.Errorf("system.WriteFile(ctx, sys, %q, %q, 0666): %v", path, content, err)
+	}
+	return nil
+}
+
+func mklink(ctx context.Context, log logger, fs system.FS, oldname, newname string) error {
+	log.Logf("system.Symlink(ctx, sys, %q, %q)", oldname, newname)
+	if err := fs.Symlink(ctx, oldname, newname); err != nil {
+		return fmt.Errorf("sys.Symlink(ctx, %q, %q): %v", oldname, newname, err)
 	}
 	return nil
 }

@@ -17,12 +17,14 @@ package execlib
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/zombiezen/mcm/catalog"
+	. "github.com/zombiezen/mcm/exec/execlib"
 	"github.com/zombiezen/mcm/internal/system"
 	"github.com/zombiezen/mcm/internal/system/fakesystem"
 	"github.com/zombiezen/mcm/third_party/golang/capnproto"
@@ -205,6 +207,61 @@ func TestRelink(t *testing.T) {
 	}
 }
 
+func TestExec(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	binpath := filepath.Join(fakesystem.Root, "bin")
+	aptpath := filepath.Join(binpath, "apt-get")
+	cat, err := (&catalogStruct{
+		Resources: []resource{
+			{
+				ID:      42,
+				Comment: "apt-get update",
+				Which:   catalog.Resource_Which_exec,
+				Exec: &exec{
+					Command: &command{
+						Which: catalog.Exec_Command_Which_argv,
+						Argv:  []string{aptpath, "update"},
+					},
+					Condition: execCondition{Which: catalog.Exec_condition_Which_always},
+				},
+			},
+		},
+	}).toCapnp()
+	if err != nil {
+		t.Fatal("catalogStruct.toCapnp():", err)
+	}
+	sys := new(fakesystem.System)
+	if err := sys.Mkdir(ctx, binpath, 0777); err != nil {
+		t.Fatalf("mkdir %s: %v", binpath, err)
+	}
+	called := false
+	err = sys.Mkprogram(aptpath, func(ctx context.Context, pc *fakesystem.ProgramContext) int {
+		if len(pc.Args) != 2 || pc.Args[1] != "update" {
+			fmt.Fprintf(pc.Output, "arguments = %v; want [update]\n", pc.Args[1:])
+			return 1
+		}
+		called = true
+		return 0
+	})
+	if err != nil {
+		t.Fatal("Mkprogram:", err)
+	}
+
+	app := &Applier{
+		System: sys,
+		Log:    testLogger{t: t},
+	}
+	err = app.Apply(ctx, cat)
+	if err != nil {
+		t.Error("Apply:", err)
+	}
+
+	if !called {
+		t.Error("program not executed")
+	}
+}
+
 type catalogStruct struct {
 	Resources []resource
 }
@@ -229,6 +286,7 @@ type resource struct {
 
 	Which catalog.Resource_Which
 	File  *file
+	Exec  *exec
 }
 
 type file struct {
@@ -254,6 +312,32 @@ func newSymlinkFile(oldname, newname string) *file {
 	f := &file{Path: newname, Which: catalog.File_Which_symlink}
 	f.Symlink.Target = oldname
 	return f
+}
+
+type exec struct {
+	Command   *command
+	Condition execCondition
+}
+
+type execCondition struct {
+	Which         catalog.Exec_condition_Which
+	OnlyIf        *command
+	Unless        *command
+	FileAbsent    string
+	IfDepsChanged []uint64
+}
+
+type command struct {
+	Which catalog.Exec_Command_Which
+	Argv  []string
+	Bash  string
+
+	Env []envVar `capnp:"environment"`
+	Dir string   `capnp:"workingDirectory"`
+}
+
+type envVar struct {
+	Name, Value string
 }
 
 type testLogger struct {

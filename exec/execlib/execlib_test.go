@@ -262,6 +262,97 @@ func TestExec(t *testing.T) {
 	}
 }
 
+func TestExecIfDepsChanged(t *testing.T) {
+	t.Skip("TODO(soon): not implemented")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	binpath := filepath.Join(fakesystem.Root, "bin")
+	fpath := filepath.Join(fakesystem.Root, "config")
+	aptpath := filepath.Join(binpath, "apt-get")
+	cat, err := (&catalogStruct{
+		Resources: []resource{
+			{
+				ID:      100,
+				Comment: "file",
+				Which:   catalog.Resource_Which_file,
+				File:    newPlainFile(fpath, []byte("Hello")),
+			},
+			{
+				ID:      42,
+				Comment: "apt-get update",
+				Which:   catalog.Resource_Which_exec,
+				Exec: &exec{
+					Command: &command{
+						Which: catalog.Exec_Command_Which_argv,
+						Argv:  []string{aptpath, "update"},
+					},
+					Condition: execCondition{
+						Which:         catalog.Exec_condition_Which_ifDepsChanged,
+						IfDepsChanged: []uint64{100},
+					},
+				},
+			},
+		},
+	}).toCapnp()
+	if err != nil {
+		t.Fatal("catalogStruct.toCapnp():", err)
+	}
+	t.Run("trigger", func(t *testing.T) {
+		sys := new(fakesystem.System)
+		if err := sys.Mkdir(ctx, binpath, 0777); err != nil {
+			t.Fatalf("mkdir %s: %v", binpath, err)
+		}
+		called := false
+		err = sys.Mkprogram(aptpath, func(ctx context.Context, pc *fakesystem.ProgramContext) int {
+			called = true
+			return 0
+		})
+		if err != nil {
+			t.Fatal("Mkprogram:", err)
+		}
+		app := &Applier{
+			System: sys,
+			Log:    testLogger{t: t},
+		}
+		err = app.Apply(ctx, cat)
+		if err != nil {
+			t.Error("Apply:", err)
+		}
+		if !called {
+			t.Error("program not executed")
+		}
+	})
+	t.Run("no-op", func(t *testing.T) {
+		sys := new(fakesystem.System)
+		if err := sys.Mkdir(ctx, binpath, 0777); err != nil {
+			t.Fatalf("mkdir %s: %v", binpath, err)
+		}
+		called := false
+		err = sys.Mkprogram(aptpath, func(ctx context.Context, pc *fakesystem.ProgramContext) int {
+			called = true
+			return 0
+		})
+		if err != nil {
+			t.Fatal("Mkprogram:", err)
+		}
+		if err := system.WriteFile(ctx, sys, fpath, []byte("Hello"), 0666); err != nil {
+			t.Fatal("WriteFile:", err)
+		}
+		app := &Applier{
+			System: sys,
+			Log:    testLogger{t: t},
+		}
+		err = app.Apply(ctx, cat)
+		if err != nil {
+			t.Error("Apply:", err)
+		}
+		if called {
+			t.Error("program executed even though file existed")
+		}
+	})
+}
+
 type catalogStruct struct {
 	Resources []resource
 }

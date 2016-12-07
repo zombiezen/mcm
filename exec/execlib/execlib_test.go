@@ -263,8 +263,6 @@ func TestExec(t *testing.T) {
 }
 
 func TestExecIfDepsChanged(t *testing.T) {
-	t.Skip("TODO(soon): not implemented")
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	binpath := filepath.Join(fakesystem.Root, "bin")
@@ -281,6 +279,7 @@ func TestExecIfDepsChanged(t *testing.T) {
 			{
 				ID:      42,
 				Comment: "apt-get update",
+				Deps:    []uint64{100},
 				Which:   catalog.Resource_Which_exec,
 				Exec: &exec{
 					Command: &command{

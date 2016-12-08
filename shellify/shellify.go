@@ -29,17 +29,17 @@ import (
 func main() {
 	c, err := readCatalog(os.Stdin)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "mcm-catbash: read catalog:", err)
+		fmt.Fprintln(os.Stderr, "mcm-shellify: read catalog:", err)
 		os.Exit(1)
 	}
 	res, _ := c.Resources()
 	g, err := depgraph.New(res)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "mcm-catbash:", err)
+		fmt.Fprintln(os.Stderr, "mcm-shellify:", err)
 		os.Exit(1)
 	}
 	if err = writeScript(os.Stdout, g); err != nil {
-		fmt.Fprintln(os.Stderr, "mcm-catbash:", err)
+		fmt.Fprintln(os.Stderr, "mcm-shellify:", err)
 		os.Exit(1)
 	}
 }

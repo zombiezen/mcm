@@ -19,13 +19,14 @@ mcm.resource('hello', {}, mcm.file{
 })
 EOF
 
-$ mcm-luacat foo.lua > foo.out    # Run the Lua script and create a
-                                  # catalog file.
-$ sudo mcm-exec foo.out           # mcm-exec applies a catalog directly
-                                  # to the local system.
-$ mcm-catbash < foo.out > foo.sh  # mcm-catbash converts a catalog into
-                                  # a self-contained shell script.  This
-                                  # can be used to run over SSH, etc.
+$ mcm-luacat foo.lua > foo.out     # Run the Lua script and create a
+                                   # catalog file.
+$ sudo mcm-exec foo.out            # mcm-exec applies a catalog directly
+                                   # to the local system.
+$ mcm-shellify < foo.out > foo.sh  # mcm-shellify converts a catalog
+                                   # into a self-contained shell script.
+                                   # The script can be used to run over
+                                   # SSH, etc.
 ```
 
 ## Building

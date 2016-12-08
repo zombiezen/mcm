@@ -13,7 +13,7 @@
 # limitations under the License.
 
 go_binary(
-    name = "mcm-catbash",
+    name = "mcm-shellify",
     srcs = glob(["*.go"]),
     deps = [
         "//:catalog",

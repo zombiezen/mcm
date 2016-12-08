@@ -25,18 +25,17 @@ import (
 
 	"github.com/zombiezen/mcm/catalog"
 	. "github.com/zombiezen/mcm/exec/execlib"
+	"github.com/zombiezen/mcm/internal/catpogs"
 	"github.com/zombiezen/mcm/internal/system"
 	"github.com/zombiezen/mcm/internal/system/fakesystem"
-	"github.com/zombiezen/mcm/third_party/golang/capnproto"
-	"github.com/zombiezen/mcm/third_party/golang/capnproto/pogs"
 )
 
 func TestEmpty(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	cat, err := new(catalogStruct).toCapnp()
+	cat, err := new(catpogs.Catalog).ToCapnp()
 	if err != nil {
-		t.Fatal("new(catalogStruct).toCapnp():", err)
+		t.Fatal("new(catpogs.Catalog).ToCapnp():", err)
 	}
 	app := &Applier{
 		System: new(fakesystem.System),
@@ -52,18 +51,18 @@ func TestFile(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	fpath := filepath.Join(fakesystem.Root, "foo")
-	cat, err := (&catalogStruct{
-		Resources: []resource{
+	cat, err := (&catpogs.Catalog{
+		Resources: []*catpogs.Resource{
 			{
 				ID:      42,
 				Comment: "file",
 				Which:   catalog.Resource_Which_file,
-				File:    newPlainFile(fpath, []byte("Hello")),
+				File:    catpogs.PlainFile(fpath, []byte("Hello")),
 			},
 		},
-	}).toCapnp()
+	}).ToCapnp()
 	if err != nil {
-		t.Fatal("catalogStruct.toCapnp():", err)
+		t.Fatal("catpogs.Catalog.ToCapnp():", err)
 	}
 	sys := new(fakesystem.System)
 	app := &Applier{
@@ -94,25 +93,25 @@ func TestLink(t *testing.T) {
 	defer cancel()
 	fpath := filepath.Join(fakesystem.Root, "foo")
 	lpath := filepath.Join(fakesystem.Root, "link")
-	cat, err := (&catalogStruct{
-		Resources: []resource{
+	cat, err := (&catpogs.Catalog{
+		Resources: []*catpogs.Resource{
 			{
 				ID:      42,
 				Comment: "file",
 				Which:   catalog.Resource_Which_file,
-				File:    newPlainFile(fpath, []byte("Hello")),
+				File:    catpogs.PlainFile(fpath, []byte("Hello")),
 			},
 			{
 				ID:      100,
 				Deps:    []uint64{42},
 				Comment: "link",
 				Which:   catalog.Resource_Which_file,
-				File:    newSymlinkFile(fpath, lpath),
+				File:    catpogs.SymlinkFile(fpath, lpath),
 			},
 		},
-	}).toCapnp()
+	}).ToCapnp()
 	if err != nil {
-		t.Fatal("catalogStruct.toCapnp():", err)
+		t.Fatal("catpogs.Catalog.ToCapnp():", err)
 	}
 	sys := new(fakesystem.System)
 	app := &Applier{
@@ -158,18 +157,18 @@ func TestRelink(t *testing.T) {
 	f1path := filepath.Join(fakesystem.Root, "foo")
 	f2path := filepath.Join(fakesystem.Root, "bar")
 	lpath := filepath.Join(fakesystem.Root, "link")
-	cat, err := (&catalogStruct{
-		Resources: []resource{
+	cat, err := (&catpogs.Catalog{
+		Resources: []*catpogs.Resource{
 			{
 				ID:      42,
 				Comment: "link",
 				Which:   catalog.Resource_Which_file,
-				File:    newSymlinkFile(f2path, lpath),
+				File:    catpogs.SymlinkFile(f2path, lpath),
 			},
 		},
-	}).toCapnp()
+	}).ToCapnp()
 	if err != nil {
-		t.Fatal("catalogStruct.toCapnp():", err)
+		t.Fatal("catpogs.Catalog.ToCapnp():", err)
 	}
 	sys := new(fakesystem.System)
 	if err := system.WriteFile(ctx, sys, f1path, []byte("File 1"), 0666); err != nil {
@@ -212,24 +211,24 @@ func TestExec(t *testing.T) {
 	defer cancel()
 	binpath := filepath.Join(fakesystem.Root, "bin")
 	aptpath := filepath.Join(binpath, "apt-get")
-	cat, err := (&catalogStruct{
-		Resources: []resource{
+	cat, err := (&catpogs.Catalog{
+		Resources: []*catpogs.Resource{
 			{
 				ID:      42,
 				Comment: "apt-get update",
 				Which:   catalog.Resource_Which_exec,
-				Exec: &exec{
-					Command: &command{
+				Exec: &catpogs.Exec{
+					Command: &catpogs.Command{
 						Which: catalog.Exec_Command_Which_argv,
 						Argv:  []string{aptpath, "update"},
 					},
-					Condition: execCondition{Which: catalog.Exec_condition_Which_always},
+					Condition: catpogs.ExecCondition{Which: catalog.Exec_condition_Which_always},
 				},
 			},
 		},
-	}).toCapnp()
+	}).ToCapnp()
 	if err != nil {
-		t.Fatal("catalogStruct.toCapnp():", err)
+		t.Fatal("catpogs.Catalog.ToCapnp():", err)
 	}
 	sys := new(fakesystem.System)
 	if err := sys.Mkdir(ctx, binpath, 0777); err != nil {
@@ -268,34 +267,34 @@ func TestExecIfDepsChanged(t *testing.T) {
 	binpath := filepath.Join(fakesystem.Root, "bin")
 	fpath := filepath.Join(fakesystem.Root, "config")
 	aptpath := filepath.Join(binpath, "apt-get")
-	cat, err := (&catalogStruct{
-		Resources: []resource{
+	cat, err := (&catpogs.Catalog{
+		Resources: []*catpogs.Resource{
 			{
 				ID:      100,
 				Comment: "file",
 				Which:   catalog.Resource_Which_file,
-				File:    newPlainFile(fpath, []byte("Hello")),
+				File:    catpogs.PlainFile(fpath, []byte("Hello")),
 			},
 			{
 				ID:      42,
 				Comment: "apt-get update",
 				Deps:    []uint64{100},
 				Which:   catalog.Resource_Which_exec,
-				Exec: &exec{
-					Command: &command{
+				Exec: &catpogs.Exec{
+					Command: &catpogs.Command{
 						Which: catalog.Exec_Command_Which_argv,
 						Argv:  []string{aptpath, "update"},
 					},
-					Condition: execCondition{
+					Condition: catpogs.ExecCondition{
 						Which:         catalog.Exec_condition_Which_ifDepsChanged,
 						IfDepsChanged: []uint64{100},
 					},
 				},
 			},
 		},
-	}).toCapnp()
+	}).ToCapnp()
 	if err != nil {
-		t.Fatal("catalogStruct.toCapnp():", err)
+		t.Fatal("catpogs.Catalog.ToCapnp():", err)
 	}
 	t.Run("trigger", func(t *testing.T) {
 		sys := new(fakesystem.System)
@@ -350,84 +349,6 @@ func TestExecIfDepsChanged(t *testing.T) {
 			t.Error("program executed even though file existed")
 		}
 	})
-}
-
-type catalogStruct struct {
-	Resources []resource
-}
-
-func (c *catalogStruct) toCapnp() (catalog.Catalog, error) {
-	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
-	if err != nil {
-		return catalog.Catalog{}, err
-	}
-	root, err := catalog.NewRootCatalog(seg)
-	if err != nil {
-		return catalog.Catalog{}, err
-	}
-	err = pogs.Insert(catalog.Catalog_TypeID, root.Struct, c)
-	return root, err
-}
-
-type resource struct {
-	ID      uint64 `capnp:"id"`
-	Comment string
-	Deps    []uint64 `capnp:"dependencies"`
-
-	Which catalog.Resource_Which
-	File  *file
-	Exec  *exec
-}
-
-type file struct {
-	Path string
-
-	Which catalog.File_Which
-	Plain struct {
-		Content []byte
-	}
-	Directory struct{}
-	Symlink   struct {
-		Target string
-	}
-}
-
-func newPlainFile(path string, content []byte) *file {
-	f := &file{Path: path, Which: catalog.File_Which_plain}
-	f.Plain.Content = content
-	return f
-}
-
-func newSymlinkFile(oldname, newname string) *file {
-	f := &file{Path: newname, Which: catalog.File_Which_symlink}
-	f.Symlink.Target = oldname
-	return f
-}
-
-type exec struct {
-	Command   *command
-	Condition execCondition
-}
-
-type execCondition struct {
-	Which         catalog.Exec_condition_Which
-	OnlyIf        *command
-	Unless        *command
-	FileAbsent    string
-	IfDepsChanged []uint64
-}
-
-type command struct {
-	Which catalog.Exec_Command_Which
-	Argv  []string
-	Bash  string
-
-	Env []envVar `capnp:"environment"`
-	Dir string   `capnp:"workingDirectory"`
-}
-
-type envVar struct {
-	Name, Value string
 }
 
 type testLogger struct {

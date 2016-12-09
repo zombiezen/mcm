@@ -12,12 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-go_binary(
-    name = "mcm-shellify",
-    srcs = glob(["*.go"]),
+package(default_visibility = ["//shellify:__subpackages__"])
+
+go_default_library(
     deps = [
         "//:catalog",
-        "//shellify/shlib:go_default_library",
-        "//third_party/golang/capnproto:go_default_library",
+        "//internal/depgraph:go_default_library",
     ],
 )

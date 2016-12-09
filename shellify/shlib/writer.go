@@ -16,6 +16,7 @@ package shlib
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -24,6 +25,10 @@ import (
 type gen struct {
 	ew     errWriter
 	indent int
+}
+
+func newGen(w io.Writer) *gen {
+	return &gen{ew: errWriter{w: w}}
 }
 
 func (g *gen) p(args ...interface{}) {
@@ -35,14 +40,25 @@ func (g *gen) p(args ...interface{}) {
 	for i := 0; i < g.indent; i++ {
 		buf.WriteString("  ")
 	}
-	for _, a := range args {
+	var temp []byte
+	for i, a := range args {
+		if i > 0 {
+			buf.WriteByte(' ')
+		}
 		switch a := a.(type) {
 		case string:
-			buf.WriteString(shellQuote(a))
+			temp = appendShellQuote(temp[:0], a)
+			buf.Write(temp)
 		case script:
 			buf.WriteString(string(a))
 		case uint64:
-			buf.WriteString(strconv.FormatUint(a, 10))
+			temp = strconv.AppendUint(temp[:0], a, 10)
+			buf.Write(temp)
+		case heredoc:
+			if i != len(args)-1 {
+				panic(errors.New("heredoc placed in non-final argument"))
+			}
+			a.encode(&buf)
 		default:
 			panic(fmt.Errorf("unknown type: %T", a))
 		}
@@ -57,6 +73,13 @@ func (g *gen) out() { g.indent-- }
 type errWriter struct {
 	w   io.Writer
 	err error
+}
+
+func newErrWriter(w io.Writer) *errWriter {
+	if ew, ok := w.(*errWriter); ok {
+		return ew
+	}
+	return &errWriter{w: w}
 }
 
 func (ew *errWriter) Write(p []byte) (n int, err error) {
@@ -82,9 +105,32 @@ func (s script) String() string {
 	return string(s)
 }
 
-func shellQuote(s string) string {
+type heredoc struct {
+	marker string
+	// TODO(someday): use io.Reader to avoid copying in base64 case
+	data []byte
+}
+
+func (hd heredoc) encode(w io.Writer) error {
+	ew := newErrWriter(w)
+	ew.WriteString("<<'")
+	ew.WriteString(hd.marker)
+	ew.WriteString("'\n")
+	ew.Write(hd.data)
+	ew.WriteString("\n")
+	ew.WriteString(hd.marker)
+	return ew.err
+}
+
+func (hd heredoc) String() string {
+	var buf bytes.Buffer
+	hd.encode(&buf)
+	return buf.String()
+}
+
+func appendShellQuote(buf []byte, s string) []byte {
 	if s == "" {
-		return "''"
+		return append(buf, '\'', '\'')
 	}
 	safe := true
 	for i := 0; i < len(s); i++ {
@@ -94,9 +140,8 @@ func shellQuote(s string) string {
 		}
 	}
 	if safe {
-		return s
+		return append(buf, s...)
 	}
-	buf := make([]byte, 0, len(s)+2)
 	buf = append(buf, '\'')
 	for i := 0; i < len(s); i++ {
 		if s[i] == '\'' {
@@ -106,7 +151,7 @@ func shellQuote(s string) string {
 		}
 	}
 	buf = append(buf, '\'')
-	return string(buf)
+	return buf
 }
 
 func isShellSafe(b byte) bool {

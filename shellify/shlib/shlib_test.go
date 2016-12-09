@@ -29,10 +29,20 @@ func TestShellQuote(t *testing.T) {
 		{`'abc'`, `''\''abc'\'''`},
 		{`abc\`, `'abc\'`},
 	}
-	for _, test := range tests {
-		out := shellQuote(test.in)
-		if out != test.out {
-			t.Errorf("shellQuote(%q) = %s; want %s", test.in, out, test.out)
+	t.Run("NilAppend", func(t *testing.T) {
+		for _, test := range tests {
+			out := string(appendShellQuote(nil, test.in))
+			if out != test.out {
+				t.Errorf("shellQuote(%q) = %s; want %s", test.in, out, test.out)
+			}
 		}
-	}
+	})
+	t.Run("Prefix", func(t *testing.T) {
+		for _, test := range tests {
+			out := string(appendShellQuote([]byte("AAA"), test.in))
+			if want := "AAA" + test.out; out != want {
+				t.Errorf("shellQuote(%q) = %s; want %s", test.in, out, want)
+			}
+		}
+	})
 }

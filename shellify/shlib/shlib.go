@@ -32,7 +32,7 @@ func WriteScript(w io.Writer, c catalog.Catalog) error {
 	if err != nil {
 		return err
 	}
-	g := &gen{ew: errWriter{w: w}}
+	g := newGen(w)
 	g.p(script("#!/bin/bash"))
 	g.p(script("_() {"))
 	g.in()
@@ -61,9 +61,9 @@ func (g *gen) resource(r catalog.Resource) error {
 	}
 	g.p()
 	if c, _ := r.Comment(); c != "" {
-		g.p(script("# "), script(c))
+		g.p(script("#"), script(c))
 	} else {
-		g.p(script("# Resource ID="), r.ID())
+		g.p(script("# Resource ID ="), r.ID())
 	}
 	switch r.Which() {
 	case catalog.Resource_Which_file:
@@ -89,21 +89,19 @@ func (g *gen) file(f catalog.File) error {
 		// TODO(soon): handle no content case
 		// TODO(soon): respect file mode
 		if f.Plain().HasContent() {
-			g.p(script("base64 -d > "), path, script(" <<!EOF!"))
 			content, err := f.Plain().Content()
 			if err != nil {
 				return fmt.Errorf("read content from catalog: %v", err)
 			}
-			enc := base64.NewEncoder(base64.StdEncoding, &g.ew)
-			enc.Write(content)
-			enc.Close()
-			g.ew.WriteString("\n!EOF!\n")
+			enc := make([]byte, base64.StdEncoding.EncodedLen(len(content)))
+			base64.StdEncoding.Encode(enc, content)
+			g.p(script("base64 -d >"), path, heredoc{marker: "!EOF!", data: enc})
 		}
 	case catalog.File_Which_directory:
 		// TODO(soon): respect file mode
-		g.p(script("if [[ ! -d "), path, script(" ]]; then"))
+		g.p(script("if [[ ! -d"), path, script("]]; then"))
 		g.in()
-		g.p(script("mkdir "), path)
+		g.p(script("mkdir"), path)
 		g.out()
 		g.p(script("fi"))
 	case catalog.File_Which_symlink:
@@ -111,18 +109,18 @@ func (g *gen) file(f catalog.File) error {
 		if target == "" {
 			return errors.New("symlink target is empty")
 		}
-		g.p(script("if [[ ! -e "), path, script(" ]]; then"))
+		g.p(script("if [[ ! -e"), path, script("]]; then"))
 		g.in()
-		g.p(script("ln -s "), target, script(" "), path)
+		g.p(script("ln -s"), target, path)
 		g.out()
-		g.p(script("elif [[ -L "), path, script(" ]]; then"))
+		g.p(script("elif [[ -L"), path, script("]]; then"))
 		g.in()
-		g.p(script("ln -f -s "), target, script(" "), path)
+		g.p(script("ln -f -s"), target, path)
 		g.out()
 		g.p(script("else"))
 		g.in()
 		// TODO(soon): skip dependent tasks on failure
-		g.p(script("echo "), path, script(" 'is not a symlink' 1>&2"))
+		g.p(script("echo"), path, script("'is not a symlink' 1>&2"))
 		g.p(script("return 1"))
 		g.out()
 		g.p(script("fi"))

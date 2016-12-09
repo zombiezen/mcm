@@ -56,13 +56,28 @@ func WriteScript(w io.Writer, c catalog.Catalog) error {
 }
 
 func (g *gen) resource(r catalog.Resource) error {
+	if r.Which() == catalog.Resource_Which_noop {
+		return nil
+	}
 	g.p()
 	if c, _ := r.Comment(); c != "" {
 		g.p(script("# "), script(c))
 	} else {
 		g.p(script("# Resource ID="), r.ID())
 	}
-	f, _ := r.File()
+	switch r.Which() {
+	case catalog.Resource_Which_file:
+		f, err := r.File()
+		if err != nil {
+			return fmt.Errorf("read from catalog: %v", err)
+		}
+		return g.file(f)
+	default:
+		return fmt.Errorf("unsupported resource %v", r.Which())
+	}
+}
+
+func (g *gen) file(f catalog.File) error {
 	path, err := f.Path()
 	if err != nil {
 		return fmt.Errorf("reading file path: %v", err)
@@ -71,11 +86,14 @@ func (g *gen) resource(r catalog.Resource) error {
 	}
 	switch f.Which() {
 	case catalog.File_Which_plain:
-		// TODO(soon): touch, even if no content
+		// TODO(soon): handle no content case
 		// TODO(soon): respect file mode
 		if f.Plain().HasContent() {
 			g.p(script("base64 -d > "), path, script(" <<!EOF!"))
-			content, _ := f.Plain().Content()
+			content, err := f.Plain().Content()
+			if err != nil {
+				return fmt.Errorf("read content from catalog: %v", err)
+			}
 			enc := base64.NewEncoder(base64.StdEncoding, &g.ew)
 			enc.Write(content)
 			enc.Close()
@@ -86,6 +104,26 @@ func (g *gen) resource(r catalog.Resource) error {
 		g.p(script("if [[ ! -d "), path, script(" ]]; then"))
 		g.in()
 		g.p(script("mkdir "), path)
+		g.out()
+		g.p(script("fi"))
+	case catalog.File_Which_symlink:
+		target, _ := f.Symlink().Target()
+		if target == "" {
+			return errors.New("symlink target is empty")
+		}
+		g.p(script("if [[ ! -e "), path, script(" ]]; then"))
+		g.in()
+		g.p(script("ln -s "), target, script(" "), path)
+		g.out()
+		g.p(script("elif [[ -L "), path, script(" ]]; then"))
+		g.in()
+		g.p(script("ln -f -s "), target, script(" "), path)
+		g.out()
+		g.p(script("else"))
+		g.in()
+		// TODO(soon): skip dependent tasks on failure
+		g.p(script("echo "), path, script(" 'is not a symlink' 1>&2"))
+		g.p(script("return 1"))
 		g.out()
 		g.p(script("fi"))
 	default:

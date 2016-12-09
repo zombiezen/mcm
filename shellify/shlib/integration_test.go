@@ -87,8 +87,6 @@ func fileTest(t *testing.T, bashPath string) {
 }
 
 func linkTest(t *testing.T, bashPath string) {
-	t.Skip("TODO(now): links not implemented")
-
 	root, deleteTempDir, err := makeTempDir(t)
 	if err != nil {
 		t.Fatalf("temp directory: %v", err)
@@ -138,8 +136,6 @@ func linkTest(t *testing.T, bashPath string) {
 }
 
 func relinkTest(t *testing.T, bashPath string) {
-	t.Skip("TODO(now): links not implemented")
-
 	root, deleteTempDir, err := makeTempDir(t)
 	if err != nil {
 		t.Fatalf("temp directory: %v", err)

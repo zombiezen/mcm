@@ -35,10 +35,24 @@ func TestIntegration(t *testing.T) {
 		t.Skipf("Can't find bash: %v", err)
 	}
 	t.Logf("using %s for bash", bashPath)
-	t.Run("file", func(t *testing.T) { fileIntegrationTest(t, bashPath) })
+	t.Run("Empty", func(t *testing.T) { emptyTest(t, bashPath) })
+	t.Run("File", func(t *testing.T) { fileTest(t, bashPath) })
+	t.Run("Link", func(t *testing.T) { linkTest(t, bashPath) })
+	t.Run("Relink", func(t *testing.T) { relinkTest(t, bashPath) })
 }
 
-func fileIntegrationTest(t *testing.T, bashPath string) {
+func emptyTest(t *testing.T, bashPath string) {
+	c, err := new(catpogs.Catalog).ToCapnp()
+	if err != nil {
+		t.Fatalf("build empty catalog: %v", err)
+	}
+	_, err = runCatalog(bashPath, t, c)
+	if err != nil {
+		t.Errorf("run catalog: %v", err)
+	}
+}
+
+func fileTest(t *testing.T, bashPath string) {
 	root, deleteTempDir, err := makeTempDir(t)
 	if err != nil {
 		t.Fatalf("temp directory: %v", err)
@@ -69,6 +83,111 @@ func fileIntegrationTest(t *testing.T, bashPath string) {
 	}
 	if !bytes.Equal(gotContent, []byte(fileContent)) {
 		t.Errorf("content of %s = %q; want %q", fpath, gotContent, fileContent)
+	}
+}
+
+func linkTest(t *testing.T, bashPath string) {
+	t.Skip("TODO(now): links not implemented")
+
+	root, deleteTempDir, err := makeTempDir(t)
+	if err != nil {
+		t.Fatalf("temp directory: %v", err)
+	}
+	defer deleteTempDir()
+	fpath := filepath.Join(root, "foo")
+	lpath := filepath.Join(root, "link")
+	c, err := (&catpogs.Catalog{
+		Resources: []*catpogs.Resource{
+			{
+				ID:      42,
+				Comment: "file",
+				Which:   catalog.Resource_Which_file,
+				File:    catpogs.PlainFile(fpath, []byte("Hello")),
+			},
+			{
+				ID:      100,
+				Deps:    []uint64{42},
+				Comment: "link",
+				Which:   catalog.Resource_Which_file,
+				File:    catpogs.SymlinkFile(fpath, lpath),
+			},
+		},
+	}).ToCapnp()
+	if err != nil {
+		t.Fatalf("build catalog: %v", err)
+	}
+	_, err = runCatalog(bashPath, t, c)
+	if err != nil {
+		t.Errorf("run catalog: %v", err)
+	}
+
+	if info, err := os.Lstat(lpath); err == nil {
+		if info.Mode()&os.ModeType != os.ModeSymlink {
+			t.Errorf("os.Lstat(%q).Mode() = %v; want symlink", lpath, info.Mode())
+		}
+	} else {
+		t.Errorf("os.Lstat(%q): %v", lpath, err)
+	}
+	if target, err := os.Readlink(lpath); err == nil {
+		if target != fpath {
+			t.Errorf("os.Readlink(%q) = %q; want %q", lpath, target, fpath)
+		}
+	} else {
+		t.Errorf("os.Readlink(%q): %v", lpath, err)
+	}
+}
+
+func relinkTest(t *testing.T, bashPath string) {
+	t.Skip("TODO(now): links not implemented")
+
+	root, deleteTempDir, err := makeTempDir(t)
+	if err != nil {
+		t.Fatalf("temp directory: %v", err)
+	}
+	defer deleteTempDir()
+	f1path := filepath.Join(root, "foo")
+	f2path := filepath.Join(root, "bar")
+	lpath := filepath.Join(root, "link")
+	c, err := (&catpogs.Catalog{
+		Resources: []*catpogs.Resource{
+			{
+				ID:      42,
+				Comment: "link",
+				Which:   catalog.Resource_Which_file,
+				File:    catpogs.SymlinkFile(f2path, lpath),
+			},
+		},
+	}).ToCapnp()
+	if err != nil {
+		t.Fatalf("build catalog: %v", err)
+	}
+	if err := ioutil.WriteFile(f1path, []byte("File 1"), 0666); err != nil {
+		t.Fatal("WriteFile 1:", err)
+	}
+	if err := ioutil.WriteFile(f2path, []byte("File 2"), 0666); err != nil {
+		t.Fatal("WriteFile 2:", err)
+	}
+	if err := os.Symlink(f1path, lpath); err != nil {
+		t.Fatalf("os.Symlink %s -> %s: %v", lpath, f1path, err)
+	}
+	_, err = runCatalog(bashPath, t, c)
+	if err != nil {
+		t.Errorf("run catalog: %v", err)
+	}
+
+	if info, err := os.Lstat(lpath); err == nil {
+		if info.Mode()&os.ModeType != os.ModeSymlink {
+			t.Errorf("os.Lstat(%q).Mode() = %v; want symlink", lpath, info.Mode())
+		}
+	} else {
+		t.Errorf("os.Lstat(%q): %v", lpath, err)
+	}
+	if target, err := os.Readlink(lpath); err == nil {
+		if target != f2path {
+			t.Errorf("os.Readlink(%q) = %q; want %q", lpath, target, f2path)
+		}
+	} else {
+		t.Errorf("os.Readlink(%q): %v", lpath, err)
 	}
 }
 

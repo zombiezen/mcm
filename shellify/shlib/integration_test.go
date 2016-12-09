@@ -39,6 +39,7 @@ func TestIntegration(t *testing.T) {
 	t.Run("File", func(t *testing.T) { fileTest(t, bashPath) })
 	t.Run("Link", func(t *testing.T) { linkTest(t, bashPath) })
 	t.Run("Relink", func(t *testing.T) { relinkTest(t, bashPath) })
+	t.Run("SkipFail", func(t *testing.T) { skipFailTest(t, bashPath) })
 }
 
 func emptyTest(t *testing.T, bashPath string) {
@@ -184,6 +185,72 @@ func relinkTest(t *testing.T, bashPath string) {
 		}
 	} else {
 		t.Errorf("os.Readlink(%q): %v", lpath, err)
+	}
+}
+
+func skipFailTest(t *testing.T, bashPath string) {
+	t.Skip("TODO(now): implement")
+
+	root, deleteTempDir, err := makeTempDir(t)
+	if err != nil {
+		t.Fatalf("temp directory: %v", err)
+	}
+	defer deleteTempDir()
+	f1path := filepath.Join(root, "foo")
+	f2path := filepath.Join(root, "bar")
+	f3path := filepath.Join(root, "baz")
+	canaryPath := filepath.Join(root, "canary")
+	c, err := (&catpogs.Catalog{
+		Resources: []*catpogs.Resource{
+			{
+				ID:      101,
+				Comment: "file 1",
+				Which:   catalog.Resource_Which_file,
+				File:    catpogs.PlainFile(f1path, []byte("foo")),
+			},
+			{
+				ID:      102,
+				Deps:    []uint64{101},
+				Comment: "file 2",
+				Which:   catalog.Resource_Which_file,
+				File:    catpogs.PlainFile(f2path, []byte("bar")),
+			},
+			{
+				ID:      103,
+				Deps:    []uint64{102},
+				Comment: "file 3",
+				Which:   catalog.Resource_Which_file,
+				File:    catpogs.PlainFile(f3path, []byte("baz")),
+			},
+			{
+				ID:      200,
+				Comment: "canary file - not dependent on other files",
+				Which:   catalog.Resource_Which_file,
+				File:    catpogs.PlainFile(canaryPath, []byte("tweet!")),
+			},
+		},
+	}).ToCapnp()
+	if err != nil {
+		t.Fatalf("build catalog: %v", err)
+	}
+	// Create a directory to cause file 1 to fail.
+	if err := os.Mkdir(f1path, 0777); err != nil {
+		t.Fatal("mkdir:", err)
+	}
+	_, err = runCatalog(bashPath, t, c)
+	t.Logf("run catalog: %v", err)
+	if err == nil {
+		t.Error("run catalog did not return an error")
+	}
+
+	if _, err := os.Lstat(f2path); !os.IsNotExist(err) {
+		t.Errorf("os.Lstat(%q) = %v; want not exist", f2path, err)
+	}
+	if _, err := os.Lstat(f3path); !os.IsNotExist(err) {
+		t.Errorf("os.Lstat(%q) = %v; want not exist", f3path, err)
+	}
+	if _, err := os.Lstat(canaryPath); err != nil {
+		t.Errorf("os.Lstat(%q) = %v; want nil", canaryPath, err)
 	}
 }
 

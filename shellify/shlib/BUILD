@@ -14,14 +14,24 @@
 
 package(default_visibility = ["//shellify:__subpackages__"])
 
+X_TEST_SRCS = [
+    "integration_test.go",
+]
+
 go_default_library(
+    exclude = X_TEST_SRCS,
     test = 1,
-    test_separate = 1,
     deps = [
         "//:catalog",
         "//internal/depgraph:go_default_library",
     ],
-    test_deps = [
+)
+
+go_test(
+    name = "go_default_library_x_test",
+    srcs = X_TEST_SRCS,
+    size = "medium",
+    deps = [
         ":go_default_library",
         "//:catalog",
         "//internal/catpogs:go_default_library",

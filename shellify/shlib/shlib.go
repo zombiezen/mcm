@@ -97,6 +97,9 @@ func (ew *errWriter) Write(p []byte) (n int, err error) {
 }
 
 func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
 	safe := true
 	for i := 0; i < len(s); i++ {
 		if !isShellSafe(s[i]) {

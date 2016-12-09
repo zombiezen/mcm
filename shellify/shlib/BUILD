@@ -15,8 +15,15 @@
 package(default_visibility = ["//shellify:__subpackages__"])
 
 go_default_library(
+    test = 1,
+    test_separate = 1,
     deps = [
         "//:catalog",
         "//internal/depgraph:go_default_library",
+    ],
+    test_deps = [
+        ":go_default_library",
+        "//:catalog",
+        "//internal/catpogs:go_default_library",
     ],
 )

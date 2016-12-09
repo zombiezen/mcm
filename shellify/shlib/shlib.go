@@ -15,10 +15,12 @@
 package shlib
 
 import (
+	"bytes"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 
 	"github.com/zombiezen/mcm/catalog"
 	"github.com/zombiezen/mcm/internal/depgraph"
@@ -27,33 +29,72 @@ import (
 // WriteScript converts a catalog into a bash script and writes it to w.
 func WriteScript(w io.Writer, c catalog.Catalog) error {
 	res, _ := c.Resources()
-	g, err := depgraph.New(res)
+	graph, err := depgraph.New(res)
 	if err != nil {
 		return err
 	}
-	ew := &errWriter{w: w}
-	io.WriteString(ew, "#!/bin/bash\n_() {\nset -e\n")
-	for ew.err == nil && !g.Done() {
-		ready := append([]uint64(nil), g.Ready()...)
+	g := &gen{ew: errWriter{w: w}}
+	g.p(script("#!/bin/bash"))
+	g.p(script("_() {"))
+	g.in()
+	g.p(script("set -e"))
+	for g.ew.err == nil && !graph.Done() {
+		ready := append([]uint64(nil), graph.Ready()...)
 		if len(ready) == 0 {
 			return errors.New("graph not done, but has nothing to do")
 		}
 		for _, id := range ready {
-			if err := scriptResource(ew, g.Resource(id)); err != nil {
+			if err := g.resource(graph.Resource(id)); err != nil {
 				return fmt.Errorf("resource ID=%d: %v", id, err)
 			}
-			g.Mark(id)
+			graph.Mark(id)
 		}
 	}
-	io.WriteString(ew, "}\n_ \"$0\" \"$@\"\n")
-	return ew.err
+	g.out()
+	g.p(script("}"))
+	g.p(script(`_ "$0" "$@"`))
+	return g.ew.err
 }
 
-func scriptResource(ew *errWriter, r catalog.Resource) error {
+type gen struct {
+	ew     errWriter
+	indent int
+}
+
+func (g *gen) p(args ...interface{}) {
+	if len(args) == 0 {
+		g.ew.Write([]byte{'\n'})
+		return
+	}
+	var buf bytes.Buffer
+	for i := 0; i < g.indent; i++ {
+		buf.WriteString("  ")
+	}
+	for _, a := range args {
+		switch a := a.(type) {
+		case string:
+			buf.WriteString(shellQuote(a))
+		case script:
+			buf.WriteString(string(a))
+		case uint64:
+			buf.WriteString(strconv.FormatUint(a, 10))
+		default:
+			panic(fmt.Errorf("unknown type: %T", a))
+		}
+	}
+	buf.WriteByte('\n')
+	buf.WriteTo(&g.ew)
+}
+
+func (g *gen) in()  { g.indent++ }
+func (g *gen) out() { g.indent-- }
+
+func (g *gen) resource(r catalog.Resource) error {
+	g.p()
 	if c, _ := r.Comment(); c != "" {
-		fmt.Fprintf(ew, "\n# %s\n", c)
+		g.p(script("# "), script(c))
 	} else {
-		fmt.Fprintf(ew, "\n# Resource ID=%d\n", r.ID())
+		g.p(script("# Resource ID="), r.ID())
 	}
 	f, _ := r.File()
 	path, err := f.Path()
@@ -67,16 +108,20 @@ func scriptResource(ew *errWriter, r catalog.Resource) error {
 		// TODO(soon): touch, even if no content
 		// TODO(soon): respect file mode
 		if f.Plain().HasContent() {
-			fmt.Fprintf(ew, "base64 -d > %s <<!EOF!\n", shellQuote(path))
+			g.p(script("base64 -d > "), path, script(" <<!EOF!"))
 			content, _ := f.Plain().Content()
-			enc := base64.NewEncoder(base64.StdEncoding, ew)
+			enc := base64.NewEncoder(base64.StdEncoding, &g.ew)
 			enc.Write(content)
 			enc.Close()
-			io.WriteString(ew, "\n!EOF!\n")
+			g.ew.WriteString("\n!EOF!\n")
 		}
 	case catalog.File_Which_directory:
 		// TODO(soon): respect file mode
-		fmt.Fprintf(ew, "if [[ ! -d %s ]]; then\n\tmkdir %[1]s\nfi\n", shellQuote(path))
+		g.p(script("if [[ ! -d "), path, script(" ]]; then"))
+		g.in()
+		g.p(script("mkdir "), path)
+		g.out()
+		g.p(script("fi"))
 	default:
 		return fmt.Errorf("unsupported file directive %v", f.Which())
 	}
@@ -94,6 +139,21 @@ func (ew *errWriter) Write(p []byte) (n int, err error) {
 	}
 	n, ew.err = ew.w.Write(p)
 	return n, ew.err
+}
+
+func (ew *errWriter) WriteString(s string) (n int, err error) {
+	if ew.err != nil {
+		return 0, ew.err
+	}
+	n, ew.err = io.WriteString(ew.w, s)
+	return n, ew.err
+}
+
+// script is properly escaped bash.
+type script string
+
+func (s script) String() string {
+	return string(s)
 }
 
 func shellQuote(s string) string {

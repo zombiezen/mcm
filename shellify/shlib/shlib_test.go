@@ -25,6 +25,7 @@ func TestShellQuote(t *testing.T) {
 		{``, `''`},
 		{`abc`, `abc`},
 		{`abc def`, `'abc def'`},
+		{`abc/def`, `abc/def`},
 		{`"abc"`, `'"abc"'`},
 		{`'abc'`, `''\''abc'\'''`},
 		{`abc\`, `'abc\'`},

@@ -159,5 +159,5 @@ func appendShellQuote(buf []byte, s string) []byte {
 }
 
 func isShellSafe(b byte) bool {
-	return b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || b == '-' || b == '_' || b == '/'
+	return b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || b == '-' || b == '_' || b == '/' || b == '.'
 }

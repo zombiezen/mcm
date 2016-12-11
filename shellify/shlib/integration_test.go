@@ -192,8 +192,6 @@ func relinkTest(t *testing.T, bashPath string) {
 }
 
 func skipFailTest(t *testing.T, bashPath string) {
-	t.Skip("TODO(now): implement")
-
 	root, deleteTempDir, err := makeTempDir(t)
 	if err != nil {
 		t.Fatalf("temp directory: %v", err)

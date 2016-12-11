@@ -24,6 +24,7 @@ go_default_library(
     deps = [
         "//:catalog",
         "//internal/depgraph:go_default_library",
+        "//third_party/golang/capnproto:go_default_library",
     ],
 )
 

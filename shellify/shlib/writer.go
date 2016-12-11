@@ -105,6 +105,10 @@ func (s script) String() string {
 	return string(s)
 }
 
+func scriptf(format string, args ...interface{}) script {
+	return script(fmt.Sprintf(format, args...))
+}
+
 type heredoc struct {
 	marker string
 	// TODO(someday): use io.Reader to avoid copying in base64 case

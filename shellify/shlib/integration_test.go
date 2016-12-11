@@ -16,6 +16,7 @@ package shlib_test
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -28,6 +29,8 @@ import (
 	"github.com/zombiezen/mcm/internal/catpogs"
 	"github.com/zombiezen/mcm/shellify/shlib"
 )
+
+var keepScripts = flag.Bool("keep_scripts", false, "do not remove generated scripts from temporary directory")
 
 func TestIntegration(t *testing.T) {
 	bashPath, err := exec.LookPath("bash")
@@ -47,7 +50,7 @@ func emptyTest(t *testing.T, bashPath string) {
 	if err != nil {
 		t.Fatalf("build empty catalog: %v", err)
 	}
-	_, err = runCatalog(bashPath, t, c)
+	_, err = runCatalog("empty", bashPath, t, c)
 	if err != nil {
 		t.Errorf("run catalog: %v", err)
 	}
@@ -74,7 +77,7 @@ func fileTest(t *testing.T, bashPath string) {
 	if err != nil {
 		t.Fatalf("build catalog: %v", err)
 	}
-	_, err = runCatalog(bashPath, t, c)
+	_, err = runCatalog("file", bashPath, t, c)
 	if err != nil {
 		t.Errorf("run catalog: %v", err)
 	}
@@ -115,7 +118,7 @@ func linkTest(t *testing.T, bashPath string) {
 	if err != nil {
 		t.Fatalf("build catalog: %v", err)
 	}
-	_, err = runCatalog(bashPath, t, c)
+	_, err = runCatalog("link", bashPath, t, c)
 	if err != nil {
 		t.Errorf("run catalog: %v", err)
 	}
@@ -167,7 +170,7 @@ func relinkTest(t *testing.T, bashPath string) {
 	if err := os.Symlink(f1path, lpath); err != nil {
 		t.Fatalf("os.Symlink %s -> %s: %v", lpath, f1path, err)
 	}
-	_, err = runCatalog(bashPath, t, c)
+	_, err = runCatalog("relink", bashPath, t, c)
 	if err != nil {
 		t.Errorf("run catalog: %v", err)
 	}
@@ -237,7 +240,7 @@ func skipFailTest(t *testing.T, bashPath string) {
 	if err := os.Mkdir(f1path, 0777); err != nil {
 		t.Fatal("mkdir:", err)
 	}
-	_, err = runCatalog(bashPath, t, c)
+	_, err = runCatalog("skipFail", bashPath, t, c)
 	t.Logf("run catalog: %v", err)
 	if err == nil {
 		t.Error("run catalog did not return an error")
@@ -256,17 +259,19 @@ func skipFailTest(t *testing.T, bashPath string) {
 
 const tmpDirEnv = "TEST_TMPDIR"
 
-func runCatalog(bashPath string, log logger, c catalog.Catalog, args ...string) ([]byte, error) {
-	sc, err := ioutil.TempFile(os.Getenv(tmpDirEnv), "shlib_testscript")
+func runCatalog(scriptName string, bashPath string, log logger, c catalog.Catalog, args ...string) ([]byte, error) {
+	sc, err := ioutil.TempFile(os.Getenv(tmpDirEnv), "shlib_testscript_"+scriptName)
 	if err != nil {
 		return nil, err
 	}
 	scriptPath := sc.Name()
-	defer func() {
-		if err := os.Remove(scriptPath); err != nil {
-			log.Logf("removing temporary script file: %v", err)
-		}
-	}()
+	if !*keepScripts {
+		defer func() {
+			if err := os.Remove(scriptPath); err != nil {
+				log.Logf("removing temporary script file: %v", err)
+			}
+		}()
+	}
 	err = shlib.WriteScript(sc, c)
 	cerr := sc.Close()
 	if err != nil {

@@ -31,40 +31,52 @@ func newGen(w io.Writer) *gen {
 	return &gen{ew: errWriter{w: w}}
 }
 
+var newline = []byte{'\n'}
+
 func (g *gen) p(args ...interface{}) {
 	if len(args) == 0 {
-		g.ew.Write([]byte{'\n'})
+		g.ew.Write(newline)
 		return
 	}
-	var buf bytes.Buffer
+	var buf []byte
 	for i := 0; i < g.indent; i++ {
-		buf.WriteString("  ")
+		buf = append(buf, ' ', ' ')
 	}
-	var temp []byte
 	for i, a := range args {
 		if i > 0 {
-			buf.WriteByte(' ')
+			buf = append(buf, ' ')
 		}
-		switch a := a.(type) {
-		case string:
-			temp = appendShellQuote(temp[:0], a)
-			buf.Write(temp)
-		case script:
-			buf.WriteString(string(a))
-		case uint64:
-			temp = strconv.AppendUint(temp[:0], a, 10)
-			buf.Write(temp)
-		case heredoc:
+		if a, ok := a.(heredoc); ok {
 			if i != len(args)-1 {
 				panic(errors.New("heredoc placed in non-final argument"))
 			}
-			a.encode(&buf)
-		default:
-			panic(fmt.Errorf("unknown type: %T", a))
+			g.ew.Write(buf)
+			a.encode(&g.ew)
+			g.ew.Write(newline)
+			return
 		}
+		buf = appendPArg(buf, a)
 	}
-	buf.WriteByte('\n')
-	buf.WriteTo(&g.ew)
+	buf = append(buf, '\n')
+	g.ew.Write(buf)
+}
+
+func appendPArg(buf []byte, a interface{}) []byte {
+	switch a := a.(type) {
+	case string:
+		return appendShellQuote(buf, a)
+	case script:
+		return append(buf, a...)
+	case int:
+		return strconv.AppendInt(buf, int64(a), 10)
+	case assignment:
+		// TODO(maybe): check name for shell safety?
+		buf = append(buf, a.name...)
+		buf = append(buf, '=')
+		return appendPArg(buf, a.value)
+	default:
+		panic(fmt.Errorf("unknown type: %T", a))
+	}
 }
 
 func (g *gen) in()  { g.indent++ }
@@ -105,13 +117,9 @@ func (s script) String() string {
 	return string(s)
 }
 
-func scriptf(format string, args ...interface{}) script {
-	return script(fmt.Sprintf(format, args...))
-}
-
 type heredoc struct {
 	marker string
-	// TODO(someday): use io.Reader to avoid copying in base64 case
+	// TODO(someday): use io.WriterTo to avoid copying in base64 case
 	data []byte
 }
 
@@ -121,7 +129,7 @@ func (hd heredoc) encode(w io.Writer) error {
 	ew.WriteString(hd.marker)
 	ew.WriteString("'\n")
 	ew.Write(hd.data)
-	ew.WriteString("\n")
+	ew.Write(newline)
 	ew.WriteString(hd.marker)
 	return ew.err
 }
@@ -130,6 +138,15 @@ func (hd heredoc) String() string {
 	var buf bytes.Buffer
 	hd.encode(&buf)
 	return buf.String()
+}
+
+type assignment struct {
+	name  string
+	value interface{}
+}
+
+func (a assignment) String() string {
+	return string(appendPArg(nil, a))
 }
 
 func appendShellQuote(buf []byte, s string) []byte {

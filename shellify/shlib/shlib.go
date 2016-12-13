@@ -46,7 +46,8 @@ func WriteScript(w io.Writer, c catalog.Catalog) error {
 	g.p(script("_() {"))
 	g.in()
 	for i := 0; i < res.Len(); i++ {
-		g.p(scriptf("local status%d=-2", res.At(i).ID()))
+		v := resourceStatusVar(res.At(i).ID())
+		g.p(script("local"), assignment{v, -2})
 	}
 	for g.ew.err == nil && !graph.Done() {
 		ready := append([]uint64(nil), graph.Ready()...)
@@ -67,6 +68,10 @@ func WriteScript(w io.Writer, c catalog.Catalog) error {
 	return g.ew.err
 }
 
+func resourceStatusVar(id uint64) string {
+	return fmt.Sprintf("status%d", id)
+}
+
 func (g *gen) resource(r catalog.Resource) error {
 	g.p()
 	id := r.ID()
@@ -74,8 +79,9 @@ func (g *gen) resource(r catalog.Resource) error {
 		// TODO(someday): trim newlines?
 		g.p(script("#"), script(c))
 	} else {
-		g.p(scriptf("# Resource ID = %d", id))
+		g.p(script(fmt.Sprintf("# Resource ID=%d", id)))
 	}
+	statVar := resourceStatusVar(id)
 	if deps, _ := r.Dependencies(); deps.Len() > 0 {
 		g.p(script("if [["), depsPrecondition(deps), script("]]; then"))
 		g.in()
@@ -83,7 +89,7 @@ func (g *gen) resource(r catalog.Resource) error {
 			g.out()
 			g.p(script("else"))
 			g.in()
-			g.p(scriptf("status%d=-1", id))
+			g.p(assignment{statVar, -1})
 			g.out()
 			g.p(script("fi"))
 		}()
@@ -91,9 +97,9 @@ func (g *gen) resource(r catalog.Resource) error {
 	switch r.Which() {
 	case catalog.Resource_Which_noop:
 		if deps, _ := r.Dependencies(); deps.Len() > 0 {
-			g.p(depsChangedCondition(deps), scriptf("&& status%d=1 || status%d=0", id, id))
+			g.p(depsChangedCondition(deps), script("&&"), assignment{statVar, 1}, script("||"), assignment{statVar, 0})
 		} else {
-			g.p(scriptf("status%d=0", id))
+			g.p(assignment{statVar, 0})
 		}
 		return nil
 	case catalog.Resource_Which_file:
@@ -152,7 +158,13 @@ func (g *gen) exitStatusCheck(res catalog.Resource_List) {
 }
 
 func updateStatus(id uint64) script {
-	return scriptf("&& status%d=1 || status%d=-1", id, id)
+	var buf []byte
+	buf = append(buf, "&& "...)
+	v := resourceStatusVar(id)
+	buf = appendPArg(buf, assignment{v, 1})
+	buf = append(buf, " || "...)
+	buf = appendPArg(buf, assignment{v, -1})
+	return script(buf)
 }
 
 func (g *gen) file(id uint64, f catalog.File) error {
@@ -186,12 +198,12 @@ func (g *gen) file(id uint64, f catalog.File) error {
 		g.out()
 		g.p(script("elif [[ -d"), path, script("]]; then"))
 		g.in()
-		g.p(scriptf("status%d=0", id))
+		g.p(assignment{resourceStatusVar(id), 0})
 		g.out()
 		g.p(script("else"))
 		g.in()
 		g.p(script("echo"), path, script("'is not a directory' 1>&2"))
-		g.p(scriptf("status%d=-1", id))
+		g.p(assignment{resourceStatusVar(id), -1})
 		g.out()
 		g.p(script("fi"))
 	case catalog.File_Which_symlink:
@@ -207,7 +219,7 @@ func (g *gen) file(id uint64, f catalog.File) error {
 		g.out()
 		g.p(script("else"))
 		g.in()
-		g.p(scriptf("status%d=0", id))
+		g.p(assignment{resourceStatusVar(id), 0})
 		g.out()
 		g.p(script("fi"))
 		g.out()
@@ -218,7 +230,7 @@ func (g *gen) file(id uint64, f catalog.File) error {
 		g.p(script("else"))
 		g.in()
 		g.p(script("echo"), path, script("'is not a symlink' 1>&2"))
-		g.p(scriptf("status%d=-1", id))
+		g.p(assignment{resourceStatusVar(id), -1})
 		g.out()
 		g.p(script("fi"))
 	default:

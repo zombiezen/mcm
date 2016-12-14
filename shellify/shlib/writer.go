@@ -40,7 +40,7 @@ func (g *gen) p(args ...interface{}) {
 	}
 	var buf []byte
 	for i := 0; i < g.indent; i++ {
-		buf = append(buf, ' ', ' ')
+		buf = append(buf, '\t')
 	}
 	for i, a := range args {
 		if i > 0 {

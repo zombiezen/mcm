@@ -190,7 +190,7 @@ func resourceFuncReturn(id uint64) script {
 	var buf []byte
 	buf = append(buf, "[[ $"...)
 	buf = append(buf, resourceStatusVar(id)...)
-	buf = append(buf, " -eq 0 ]] && return 0 || return 1"...)
+	buf = append(buf, " -ge 0 ]] && return 0 || return 1"...)
 	return script(buf)
 }
 

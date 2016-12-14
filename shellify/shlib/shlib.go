@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	slashpath "path"
 	"strconv"
 
 	"github.com/zombiezen/mcm/catalog"
@@ -118,6 +119,12 @@ func (g *gen) resourceFunc(r catalog.Resource) error {
 			return fmt.Errorf("read from catalog: %v", err)
 		}
 		return g.file(id, f)
+	case catalog.Resource_Which_exec:
+		e, err := r.Exec()
+		if err != nil {
+			return fmt.Errorf("read from catalog: %v", err)
+		}
+		return g.exec(id, e)
 	default:
 		return fmt.Errorf("unsupported resource %v", r.Which())
 	}
@@ -264,6 +271,145 @@ func (g *gen) file(id uint64, f catalog.File) error {
 		g.p(resourceFuncReturn(id))
 	default:
 		return fmt.Errorf("unsupported file directive %v", f.Which())
+	}
+	return nil
+}
+
+func (g *gen) exec(id uint64, e catalog.Exec) error {
+	if err := g.execCondition(id, e.Condition()); err != nil {
+		return fmt.Errorf("condition: %v", err)
+	}
+	c, err := e.Command()
+	if err != nil {
+		return fmt.Errorf("read command from catalog: %v", err)
+	}
+	g.p(script("local commandExit"))
+	if err := g.command("commandExit", c); err != nil {
+		return fmt.Errorf("command: %v", err)
+	}
+	g.p(script("[[ $commandExit -eq 0 ]]"), updateStatus(id))
+	g.p(resourceFuncReturn(id))
+	return nil
+}
+
+func (g *gen) execCondition(id uint64, cond catalog.Exec_condition) error {
+	switch cond.Which() {
+	case catalog.Exec_condition_Which_always:
+		// Do nothing, always run.
+	case catalog.Exec_condition_Which_onlyIf:
+		g.p(script("local conditionExit"))
+		c, err := cond.OnlyIf()
+		if err != nil {
+			return fmt.Errorf("read from catalog: %v", err)
+		}
+		if err := g.command("conditionExit", c); err != nil {
+			return err
+		}
+		g.p(script("if [[ $conditionExit -eq 0 ]]; then"))
+		g.in()
+		g.returnStatus(id, 0)
+		g.out()
+		g.p(script("fi"))
+	case catalog.Exec_condition_Which_unless:
+		g.p(script("local conditionExit"))
+		c, err := cond.OnlyIf()
+		if err != nil {
+			return fmt.Errorf("read from catalog: %v", err)
+		}
+		if err := g.command("conditionExit", c); err != nil {
+			return err
+		}
+		g.p(script("if [[ $conditionExit -ne 0 ]]; then"))
+		g.in()
+		g.returnStatus(id, 0)
+		g.out()
+		g.p(script("fi"))
+	case catalog.Exec_condition_Which_fileAbsent:
+		path, err := cond.FileAbsent()
+		if err != nil {
+			return fmt.Errorf("read from catalog: %v", err)
+		}
+		if path == "" {
+			return errors.New("file absent path is empty")
+		}
+		if !slashpath.IsAbs(path) {
+			return fmt.Errorf("%s is not an absolute path", path)
+		}
+		g.p(script("if [[ -e"), path, script("]]; then"))
+		g.in()
+		g.returnStatus(id, 0)
+		g.out()
+		g.p(script("fi"))
+	case catalog.Exec_condition_Which_ifDepsChanged:
+		// TODO(someday): validate that deps exist
+		deps, _ := cond.IfDepsChanged()
+		if deps.Len() == 0 {
+			return errors.New("deps changed list is empty")
+		}
+		g.p(script("if ! [["), depsChangedCondition(deps), script("]]; then"))
+		g.in()
+		g.returnStatus(id, 0)
+		g.out()
+		g.p(script("fi"))
+	default:
+		return fmt.Errorf("unknown condition %v", cond.Which())
+	}
+	return nil
+}
+
+func (g *gen) command(statusVar string, c catalog.Exec_Command) error {
+	wd, _ := c.WorkingDirectory()
+	if wd == "" {
+		wd = "/"
+	}
+	pargs := []interface{}{
+		script("cd"), wd, script("&&"),
+		script("env -"),
+	}
+	env, _ := c.Environment()
+	for i, n := 0, env.Len(); i < n; i++ {
+		k, err := env.At(i).Name()
+		if err != nil {
+			return fmt.Errorf("read environment[%d] from catalog: %v", i, err)
+		}
+		v, err := env.At(i).Value()
+		if err != nil {
+			return fmt.Errorf("read environment[%d] from catalog: %v", i, err)
+		}
+		pargs = append(pargs, assignment{k, v})
+	}
+
+	switch c.Which() {
+	case catalog.Exec_Command_Which_argv:
+		argv, err := c.Argv()
+		if err != nil {
+			return fmt.Errorf("read argv from catalog: %v", err)
+		}
+		if argv.Len() == 0 {
+			return errors.New("command argv list is empty")
+		}
+		x, err := argv.At(0)
+		if err != nil {
+			return fmt.Errorf("read argv from catalog: %v", err)
+		}
+		if !slashpath.IsAbs(x) {
+			return fmt.Errorf("%s in argv is not an absolute path", x)
+		}
+		pargs = append(pargs, x)
+		for i, n := 1, argv.Len(); i < n; i++ {
+			arg, err := argv.At(i)
+			if err != nil {
+				return fmt.Errorf("read argv from catalog: %v", err)
+			}
+			pargs = append(pargs, arg)
+		}
+
+		g.p(script("("))
+		g.p(pargs...)
+		g.p(script(")"))
+		g.p(assignment{statusVar, script("$?")})
+	default:
+		return fmt.Errorf("unsupported command %v", c.Which())
 	}
 	return nil
 }

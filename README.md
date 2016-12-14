@@ -42,8 +42,15 @@ $ ./bazel build //...  # Build all binaries
 $ ./bazel test //...   # Run all tests
 ```
 
+## Discuss
+
+Join the [mcm-develop](https://groups.google.com/forum/#!forum/mcm-develop) group.
+
+Please follow the [Go Code of Conduct](https://golang.org/conduct) when posting in both the group and the issue tracker.
+If you encounter any conduct-related issues, contact Ross Light (ross@zombiezen.com).
+
 ## License
 
-Apache 2.0.  See the LICENSE file for details.
+Apache 2.0.  See the [LICENSE](LICENSE) file for details.
 
-Contributing?  Read up on CONTRIBUTING.md.
+[Contributing?](CONTRIBUTING.md)

@@ -16,7 +16,9 @@
 package shlib
 
 import (
+	"crypto/sha1"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -242,6 +244,7 @@ func (g *gen) file(id uint64, f catalog.File) error {
 		g.returnStatus(id, -1)
 		g.out()
 		g.p(script("fi"))
+		// TODO(someday): non-binary files could skip base64 decoding.
 		g.p(script(`base64 --decode > "$tmploc"`), heredoc{marker: "!EOF!", data: enc})
 		g.p(script("if [[ $? -ne 0 ]]; then"))
 		g.in()
@@ -469,8 +472,25 @@ func (g *gen) command(statusVar string, c catalog.Exec_Command) error {
 		g.p(pargs...)
 		g.p(script(")"))
 		g.p(assignment{statusVar, script("$?")})
+	case catalog.Exec_Command_Which_bash:
+		b, err := c.BashBytes()
+		if err != nil {
+			return fmt.Errorf("read bash from catalog: %v", err)
+		}
+		pargs = append(pargs, script("bash"), heredoc{marker: contentMarker(b), data: b})
+
+		g.p(script("("))
+		g.p(pargs...)
+		g.p(script(")"))
+		g.p(assignment{statusVar, script("$?")})
 	default:
 		return fmt.Errorf("unsupported command %v", c.Which())
 	}
 	return nil
+}
+
+func contentMarker(b []byte) string {
+	// TODO(someday): in most cases, EOF is fine.
+	s := sha1.Sum(b)
+	return "EOF" + hex.EncodeToString(s[:])
 }

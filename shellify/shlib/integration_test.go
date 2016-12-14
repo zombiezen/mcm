@@ -44,6 +44,7 @@ func TestIntegration(t *testing.T) {
 	t.Run("Relink", func(t *testing.T) { relinkTest(t, bashPath) })
 	t.Run("SkipFail", func(t *testing.T) { skipFailTest(t, bashPath) })
 	t.Run("Exec", func(t *testing.T) { execTest(t, bashPath) })
+	t.Run("ExecBash", func(t *testing.T) { execBashTest(t, bashPath) })
 	t.Run("ExecIfDepsChanged", func(t *testing.T) { execIfDepsChangedTest(t, bashPath) })
 }
 
@@ -283,6 +284,40 @@ func execTest(t *testing.T, bashPath string) {
 		t.Fatalf("build catalog: %v", err)
 	}
 	out, err := runCatalog("exec", bashPath, t, c)
+	if err != nil {
+		t.Errorf("run catalog: %v", err)
+	}
+	if !bytes.Equal(out, []byte(msg)) {
+		t.Errorf("output = %q; want %q", out, msg)
+	}
+}
+
+func execBashTest(t *testing.T, bashPath string) {
+	_, deleteTempDir, err := makeTempDir(t)
+	if err != nil {
+		t.Fatalf("temp directory: %v", err)
+	}
+	defer deleteTempDir()
+	const msg = "Hello, World!"
+	c, err := (&catpogs.Catalog{
+		Resources: []*catpogs.Resource{
+			{
+				ID:      42,
+				Comment: "exec",
+				Which:   catalog.Resource_Which_exec,
+				Exec: &catpogs.Exec{
+					Command: &catpogs.Command{
+						Which: catalog.Exec_Command_Which_bash,
+						Bash:  "/bin/echo -n 'Hello, '\n/bin/echo -n 'World!'\n",
+					},
+				},
+			},
+		},
+	}).ToCapnp()
+	if err != nil {
+		t.Fatalf("build catalog: %v", err)
+	}
+	out, err := runCatalog("execbash", bashPath, t, c)
 	if err != nil {
 		t.Errorf("run catalog: %v", err)
 	}

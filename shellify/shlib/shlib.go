@@ -42,22 +42,39 @@ func WriteScript(w io.Writer, c catalog.Catalog) error {
 	if err != nil {
 		return err
 	}
-	g.p(script("_() {"))
-	g.in()
 	for i := 0; i < res.Len(); i++ {
 		v := resourceStatusVar(res.At(i).ID())
-		g.p(script("local"), assignment{v, -2})
+		g.p(assignment{v, -2})
 	}
+	for i := 0; i < res.Len(); i++ {
+		r := res.At(i)
+		if err := g.resourceFunc(r); err != nil {
+			return fmt.Errorf("resource ID=%d: %v", r.ID(), err)
+		}
+	}
+	g.p(script("_() {"))
+	g.in()
 	for g.ew.err == nil && !graph.Done() {
 		ready := append([]uint64(nil), graph.Ready()...)
 		if len(ready) == 0 {
 			return errors.New("graph not done, but has nothing to do")
 		}
 		for _, id := range ready {
-			if err := g.resource(graph.Resource(id)); err != nil {
-				return fmt.Errorf("resource ID=%d: %v", id, err)
-			}
 			graph.Mark(id)
+			deps, _ := graph.Resource(id).Dependencies()
+			if deps.Len() == 0 {
+				g.p(resourceFuncName(id))
+				continue
+			}
+			g.p(script("if [["), depsPrecondition(deps), script("]]; then"))
+			g.in()
+			g.p(resourceFuncName(id))
+			g.out()
+			g.p(script("else"))
+			g.in()
+			g.p(assignment{resourceStatusVar(id), -1})
+			g.out()
+			g.p(script("fi"))
 		}
 	}
 	g.exitStatusCheck(res)
@@ -71,28 +88,22 @@ func resourceStatusVar(id uint64) string {
 	return fmt.Sprintf("status%d", id)
 }
 
-func (g *gen) resource(r catalog.Resource) error {
-	g.p()
+func resourceFuncName(id uint64) script {
+	return script(fmt.Sprintf("resource%d", id))
+}
+
+func (g *gen) resourceFunc(r catalog.Resource) error {
 	id := r.ID()
 	if c, _ := r.Comment(); c != "" {
 		// TODO(someday): trim newlines?
 		g.p(script("#"), script(c))
-	} else {
-		g.p(script(fmt.Sprintf("# Resource ID=%d", id)))
 	}
+	g.p(script(resourceFuncName(id) + "() {"))
+	defer g.p(script("}"))
+	g.in()
+	defer g.out()
+
 	statVar := resourceStatusVar(id)
-	if deps, _ := r.Dependencies(); deps.Len() > 0 {
-		g.p(script("if [["), depsPrecondition(deps), script("]]; then"))
-		g.in()
-		defer func() {
-			g.out()
-			g.p(script("else"))
-			g.in()
-			g.p(assignment{statVar, -1})
-			g.out()
-			g.p(script("fi"))
-		}()
-	}
 	switch r.Which() {
 	case catalog.Resource_Which_noop:
 		if deps, _ := r.Dependencies(); deps.Len() > 0 {
@@ -166,6 +177,23 @@ func updateStatus(id uint64) script {
 	return script(buf)
 }
 
+func (g *gen) returnStatus(id uint64, val int) {
+	g.p(assignment{resourceStatusVar(id), val})
+	if val >= 0 {
+		g.p(script("return 0"))
+	} else {
+		g.p(script("return 1"))
+	}
+}
+
+func resourceFuncReturn(id uint64) script {
+	var buf []byte
+	buf = append(buf, "[[ $"...)
+	buf = append(buf, resourceStatusVar(id)...)
+	buf = append(buf, " -eq 0 ]] && return 0 || return 1"...)
+	return script(buf)
+}
+
 func (g *gen) file(id uint64, f catalog.File) error {
 	path, err := f.Path()
 	if err != nil {
@@ -186,25 +214,25 @@ func (g *gen) file(id uint64, f catalog.File) error {
 			base64.StdEncoding.Encode(enc, content)
 			g.p(script("("))
 			g.p(script("base64 -d >"), path, heredoc{marker: "!EOF!", data: enc})
-			// TODO(now): check existing content and lstat
+			// TODO(soon): check existing content and lstat
 			g.p(script(")"), updateStatus(id))
+			g.p(resourceFuncReturn(id))
 		}
 	case catalog.File_Which_directory:
 		// TODO(soon): respect file mode
-		g.p(script("if [[ ! -e"), path, script("]]; then"))
+		g.p(script("if [[ -d"), path, script("]]; then"))
 		g.in()
-		g.p(script("mkdir"), path, updateStatus(id))
-		g.out()
-		g.p(script("elif [[ -d"), path, script("]]; then"))
-		g.in()
-		g.p(assignment{resourceStatusVar(id), 0})
-		g.out()
-		g.p(script("else"))
-		g.in()
-		g.p(script("echo"), path, script("'is not a directory' 1>&2"))
-		g.p(assignment{resourceStatusVar(id), -1})
+		g.returnStatus(id, 0)
 		g.out()
 		g.p(script("fi"))
+		g.p(script("if [[ -e"), path, script("]]; then"))
+		g.in()
+		g.p(script("echo"), path, script("'is not a directory' 1>&2"))
+		g.returnStatus(id, -1)
+		g.out()
+		g.p("fi")
+		g.p(script("mkdir"), path, updateStatus(id))
+		g.p(resourceFuncReturn(id))
 	case catalog.File_Which_symlink:
 		target, _ := f.Symlink().Target()
 		if target == "" {
@@ -215,23 +243,25 @@ func (g *gen) file(id uint64, f catalog.File) error {
 		g.p(script("if [[ \"$(readlink"), path, script(")\" !="), target, script("]]; then"))
 		g.in()
 		g.p(script("ln -f -s"), target, path, updateStatus(id))
+		g.p(resourceFuncReturn(id))
 		g.out()
 		g.p(script("else"))
 		g.in()
-		g.p(assignment{resourceStatusVar(id), 0})
+		g.returnStatus(id, 0)
 		g.out()
 		g.p(script("fi"))
 		g.out()
-		g.p(script("elif [[ ! -e"), path, script("]]; then"))
-		g.in()
-		g.p(script("ln -s"), target, path, updateStatus(id))
-		g.out()
-		g.p(script("else"))
+		g.p(script("fi"))
+
+		g.p(script("if [[ -e"), path, script("]]; then"))
 		g.in()
 		g.p(script("echo"), path, script("'is not a symlink' 1>&2"))
-		g.p(assignment{resourceStatusVar(id), -1})
+		g.returnStatus(id, -1)
 		g.out()
 		g.p(script("fi"))
+
+		g.p(script("ln -s"), target, path, updateStatus(id))
+		g.p(resourceFuncReturn(id))
 	default:
 		return fmt.Errorf("unsupported file directive %v", f.Which())
 	}

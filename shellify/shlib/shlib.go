@@ -44,10 +44,6 @@ func WriteScript(w io.Writer, c catalog.Catalog) error {
 		return err
 	}
 	for i := 0; i < res.Len(); i++ {
-		v := resourceStatusVar(res.At(i).ID())
-		g.p(assignment{v, -2})
-	}
-	for i := 0; i < res.Len(); i++ {
 		r := res.At(i)
 		if err := g.resourceFunc(r); err != nil {
 			return fmt.Errorf("resource ID=%d: %v", r.ID(), err)
@@ -55,6 +51,10 @@ func WriteScript(w io.Writer, c catalog.Catalog) error {
 	}
 	g.p(script("_() {"))
 	g.in()
+	for i := 0; i < res.Len(); i++ {
+		v := resourceStatusVar(res.At(i).ID())
+		g.p(assignment{v, -2})
+	}
 	for g.ew.err == nil && !graph.Done() {
 		ready := append([]uint64(nil), graph.Ready()...)
 		if len(ready) == 0 {

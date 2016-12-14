@@ -205,8 +205,12 @@ func (g *gen) file(id uint64, f catalog.File) error {
 	path, err := f.Path()
 	if err != nil {
 		return fmt.Errorf("reading file path: %v", err)
-	} else if path == "" {
+	}
+	if path == "" {
 		return errors.New("file path is empty")
+	}
+	if !slashpath.IsAbs(path) {
+		return fmt.Errorf("%s is not an absolute path", path)
 	}
 	switch f.Which() {
 	case catalog.File_Which_plain:

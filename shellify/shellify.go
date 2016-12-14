@@ -15,6 +15,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -24,8 +25,19 @@ import (
 	"github.com/zombiezen/mcm/third_party/golang/capnproto"
 )
 
+func init() {
+	flag.Usage = usage
+}
+
+func usage() {
+	fmt.Fprintf(os.Stderr, "usage: %s [CATALOG]\n", os.Args[0])
+	// TODO(someday): flag.PrintDefaults()
+}
+
 func main() {
-	c, err := readCatalog(os.Stdin)
+	flag.Parse()
+
+	c, err := readCatalogArg()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "mcm-shellify: read catalog:", err)
 		os.Exit(1)
@@ -33,6 +45,25 @@ func main() {
 	if err = shlib.WriteScript(os.Stdout, c); err != nil {
 		fmt.Fprintln(os.Stderr, "mcm-shellify:", err)
 		os.Exit(1)
+	}
+}
+
+func readCatalogArg() (catalog.Catalog, error) {
+	switch flag.NArg() {
+	case 0:
+		return readCatalog(os.Stdin)
+	case 1:
+		// TODO(someday): read segments lazily
+		f, err := os.Open(flag.Arg(0))
+		if err != nil {
+			return catalog.Catalog{}, err
+		}
+		defer f.Close()
+		return readCatalog(f)
+	default:
+		usage()
+		os.Exit(2)
+		panic("unreachable")
 	}
 }
 

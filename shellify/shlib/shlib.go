@@ -214,23 +214,80 @@ func (g *gen) file(id uint64, f catalog.File) error {
 	}
 	switch f.Which() {
 	case catalog.File_Which_plain:
-		// TODO(soon): handle no content case
-		// TODO(soon): respect file mode
-		if f.Plain().HasContent() {
-			content, err := f.Plain().Content()
-			if err != nil {
-				return fmt.Errorf("read content from catalog: %v", err)
-			}
-			enc := make([]byte, base64.StdEncoding.EncodedLen(len(content)))
-			base64.StdEncoding.Encode(enc, content)
-			g.p(script("("))
-			g.p(script("base64 -d >"), path, heredoc{marker: "!EOF!", data: enc})
-			// TODO(soon): check existing content and lstat
-			g.p(script(")"), updateStatus(id))
-			g.p(resourceFuncReturn(id))
+		// TODO(someday): respect file mode
+		if !f.Plain().HasContent() {
+			// TODO(soon): handle no content case
+			return errors.New("no-content plain file not implemented")
 		}
+
+		g.p(script("if [[ -h"), path, script("]]; then"))
+		g.in()
+		g.p(script("echo"), path, script("'is not a regular file' 1>&2"))
+		g.returnStatus(id, -1)
+		g.out()
+		g.p(script("fi"))
+
+		// Write content to a temporary file
+		// Saves size in resulting script, since base64 is encoded only once.
+		content, err := f.Plain().Content()
+		if err != nil {
+			return fmt.Errorf("read content from catalog: %v", err)
+		}
+		enc := make([]byte, base64.StdEncoding.EncodedLen(len(content)))
+		base64.StdEncoding.Encode(enc, content)
+		g.p(script("local tmploc"))
+		g.p(assignment{"tmploc", script(`"$(mktemp 2>/dev/null || mktemp -t tmp)"`)})
+		g.p(script("if [[ $? -ne 0 ]]; then"))
+		g.in()
+		g.returnStatus(id, -1)
+		g.out()
+		g.p(script("fi"))
+		g.p(script(`base64 --decode > "$tmploc"`), heredoc{marker: "!EOF!", data: enc})
+		g.p(script("if [[ $? -ne 0 ]]; then"))
+		g.in()
+		g.p(script(`rm "$tmploc"`))
+		g.returnStatus(id, -1)
+		g.out()
+		g.p(script("fi"))
+
+		// Check for existence...
+		g.p(script("if [[ ! -e"), path, script("]]; then"))
+		g.in()
+		g.p(script(`mv "$tmploc"`), path, updateStatus(id))
+		g.p(script(`rm -f "$tmploc"`))
+		g.p(resourceFuncReturn(id))
+		g.out()
+		// and non-fileness.
+		g.p(script("elif [[ ! -f"), path, script("]]; then"))
+		g.in()
+		g.p(script("echo"), path, script("'is not a regular file' 1>&2"))
+		g.returnStatus(id, -1)
+		g.out()
+		g.p(script("fi"))
+
+		// Compare to what's already there.
+		// If identical, return success.  If comparison fails, abort.
+		g.p(script("local cmpresult"))
+		g.p(script(`cmp -s "$tmploc"`), path)
+		g.p(script("cmpresult=$?"))
+		g.p(script("if [[ $cmpresult -eq 0 ]]; then"))
+		g.in()
+		g.p(script(`rm "$tmploc"`))
+		g.returnStatus(id, 0)
+		g.out()
+		g.p(script("elif [[ $cmpresult -ne 1 ]]; then"))
+		g.in()
+		g.p(script(`rm "$tmploc"`))
+		g.returnStatus(id, -1)
+		g.out()
+		g.p(script("fi"))
+
+		// Replace existing file with new one.
+		g.p(script(`mv "$tmploc"`), path, updateStatus(id))
+		g.p(script(`rm -f "$tmploc"`))
+		g.p(resourceFuncReturn(id))
 	case catalog.File_Which_directory:
-		// TODO(soon): respect file mode
+		// TODO(someday): respect file mode
 		g.p(script("if [[ -d"), path, script("]]; then"))
 		g.in()
 		g.returnStatus(id, 0)

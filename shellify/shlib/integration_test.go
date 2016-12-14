@@ -44,6 +44,7 @@ func TestIntegration(t *testing.T) {
 	t.Run("Relink", func(t *testing.T) { relinkTest(t, bashPath) })
 	t.Run("SkipFail", func(t *testing.T) { skipFailTest(t, bashPath) })
 	t.Run("Exec", func(t *testing.T) { execTest(t, bashPath) })
+	t.Run("ExecIfDepsChanged", func(t *testing.T) { execIfDepsChangedTest(t, bashPath) })
 }
 
 func emptyTest(t *testing.T, bashPath string) {
@@ -288,6 +289,85 @@ func execTest(t *testing.T, bashPath string) {
 	if !bytes.Equal(out, []byte(msg)) {
 		t.Errorf("output = %q; want %q", out, msg)
 	}
+}
+
+func execIfDepsChangedTest(t *testing.T, bashPath string) {
+	const fileName = "config"
+	const fileContent = "Hello"
+	const runMessage = "RUNNING"
+	makeCatalog := func(root string) (catalog.Catalog, error) {
+		fpath := filepath.Join(root, fileName)
+		cat, err := (&catpogs.Catalog{
+			Resources: []*catpogs.Resource{
+				{
+					ID:      100,
+					Comment: "file",
+					Which:   catalog.Resource_Which_file,
+					File:    catpogs.PlainFile(fpath, []byte(fileContent)),
+				},
+				{
+					ID:      42,
+					Comment: "echo " + runMessage,
+					Deps:    []uint64{100},
+					Which:   catalog.Resource_Which_exec,
+					Exec: &catpogs.Exec{
+						Command: &catpogs.Command{
+							Which: catalog.Exec_Command_Which_argv,
+							Argv:  []string{"/bin/echo", "-n", runMessage},
+						},
+						Condition: catpogs.ExecCondition{
+							Which:         catalog.Exec_condition_Which_ifDepsChanged,
+							IfDepsChanged: []uint64{100},
+						},
+					},
+				},
+			},
+		}).ToCapnp()
+		if err != nil {
+			return catalog.Catalog{}, fmt.Errorf("build catalog: %v", err)
+		}
+		return cat, nil
+	}
+	t.Run("trigger", func(t *testing.T) {
+		root, deleteTempDir, err := makeTempDir(t)
+		if err != nil {
+			t.Fatalf("temp directory: %v", err)
+		}
+		defer deleteTempDir()
+		c, err := makeCatalog(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := runCatalog("execIfDepsChanged", bashPath, t, c)
+		if err != nil {
+			t.Errorf("run catalog: %v", err)
+		}
+		if !bytes.Equal(out, []byte(runMessage)) {
+			t.Errorf("output = %q; want %q", out, runMessage)
+		}
+	})
+	t.Run("no-op", func(t *testing.T) {
+		root, deleteTempDir, err := makeTempDir(t)
+		if err != nil {
+			t.Fatalf("temp directory: %v", err)
+		}
+		defer deleteTempDir()
+		fpath := filepath.Join(root, fileName)
+		if err := ioutil.WriteFile(fpath, []byte(fileContent), 0666); err != nil {
+			t.Fatal("WriteFile:", err)
+		}
+		c, err := makeCatalog(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := runCatalog("execIfDepsNotChanged", bashPath, t, c)
+		if err != nil {
+			t.Errorf("run catalog: %v", err)
+		}
+		if !bytes.Equal(out, []byte{}) {
+			t.Errorf("output = %q; want \"\"", out)
+		}
+	})
 }
 
 const tmpDirEnv = "TEST_TMPDIR"

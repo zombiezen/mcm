@@ -6,7 +6,7 @@ title:            mcm
 tagline:          'Minimal Configuration Manager'
 description:      'Powerful configuration management using simple tools'
 url:              https://github.com/
-baseurl:          /
+baseurl:          /mcm
 
 author:
   name:           'Ross Light'

@@ -1,0 +1,27 @@
+# Permalinks
+permalink:        pretty
+
+# Setup
+title:            mcm
+tagline:          'Minimal Configuration Manager'
+description:      'Powerful configuration management using simple tools'
+url:              https://github.com/
+baseurl:          /
+
+author:
+  name:           'Ross Light'
+  url:            https://www.zombiezen.com/
+
+paginate:         5
+
+github:
+  repo:           https://github.com/zombiezen/mcm
+
+# Build settings
+markdown:         kramdown
+highlighter:      rouge
+gems:
+  - jekyll-paginate
+exclude:
+  - Gemfile
+  - Gemfile.lock

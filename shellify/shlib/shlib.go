@@ -87,8 +87,8 @@ func WriteScript(w io.Writer, c catalog.Catalog) error {
 	return g.ew.err
 }
 
-func resourceStatusVar(id uint64) string {
-	return fmt.Sprintf("status%d", id)
+func resourceStatusVar(id uint64) script {
+	return script(fmt.Sprintf("status%d", id))
 }
 
 func resourceFuncName(id uint64) script {
@@ -101,7 +101,7 @@ func (g *gen) resourceFunc(r catalog.Resource) error {
 		// TODO(someday): trim newlines?
 		g.p(script("#"), script(c))
 	}
-	g.p(script(resourceFuncName(id) + "() {"))
+	g.p(resourceFuncName(id) + "() {")
 	defer g.p(script("}"))
 	g.in()
 	defer g.out()
@@ -421,7 +421,7 @@ func (g *gen) execCondition(id uint64, cond catalog.Exec_condition) error {
 	return nil
 }
 
-func (g *gen) command(statusVar string, c catalog.Exec_Command) error {
+func (g *gen) command(statusVar script, c catalog.Exec_Command) error {
 	wd, _ := c.WorkingDirectory()
 	if wd == "" {
 		wd = "/"
@@ -436,11 +436,15 @@ func (g *gen) command(statusVar string, c catalog.Exec_Command) error {
 		if err != nil {
 			return fmt.Errorf("read environment[%d] from catalog: %v", i, err)
 		}
+		id, err := sanitizeIdentifier(k)
+		if err != nil {
+			return err
+		}
 		v, err := env.At(i).Value()
 		if err != nil {
 			return fmt.Errorf("read environment[%d] from catalog: %v", i, err)
 		}
-		pargs = append(pargs, assignment{k, v})
+		pargs = append(pargs, assignment{id, v})
 	}
 
 	switch c.Which() {

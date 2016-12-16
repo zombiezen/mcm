@@ -141,7 +141,7 @@ func (hd heredoc) String() string {
 }
 
 type assignment struct {
-	name  string
+	name  script
 	value interface{}
 }
 
@@ -173,6 +173,15 @@ func appendShellQuote(buf []byte, s string) []byte {
 	}
 	buf = append(buf, '\'')
 	return buf
+}
+
+func sanitizeIdentifier(s string) (script, error) {
+	for i := 0; i < len(s); i++ {
+		if !isShellSafe(s[i]) {
+			return "", fmt.Errorf("invalid shell identifier: %q", s)
+		}
+	}
+	return script(s), nil
 }
 
 func isShellSafe(b byte) bool {

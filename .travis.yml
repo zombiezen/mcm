@@ -1,4 +1,6 @@
 language: generic
+dist: trusty
+sudo: false
 
 before_install: ./bazel --batch --bazelrc=/dev/null version
 install:        ./bazel --batch --bazelrc=/dev/null fetch //...

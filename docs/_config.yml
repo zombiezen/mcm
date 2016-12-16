@@ -1,21 +1,18 @@
-# Permalinks
-permalink:        pretty
-
 # Setup
 title:            mcm
 tagline:          'Minimal Configuration Manager'
 description:      'Powerful configuration management using simple tools'
-url:              https://github.com/
+url:              https://zombiezen.github.io
 baseurl:          /mcm
+repository:       zombiezen/mcm
 
 author:
   name:           'Ross Light'
   url:            https://www.zombiezen.com/
 
 paginate:         5
-
-github:
-  repo:           https://github.com/zombiezen/mcm
+paginate_path:    "/news/page:num/"
+permalink:        "/news/:categories/:year/:month/:day/:title/"
 
 # Build settings
 markdown:         kramdown

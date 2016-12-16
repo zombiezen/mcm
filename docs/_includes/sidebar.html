@@ -11,6 +11,7 @@
 
     <nav class="sidebar-nav">
       <a class="sidebar-nav-item{% if page.url == "/" %} active{% endif %}" href="{{ site.baseurl }}/">Home</a>
+      <a class="sidebar-nav-item{% if page.url == "/news/" %} active{% endif %}" href="{{ site.baseurl }}/news/">News</a>
 
       {% comment %}
         The code below dynamically generates a sidebar nav of pages with
@@ -26,8 +27,8 @@
         {% endif %}
       {% endfor %}
 
-      <a class="sidebar-nav-item" href="{{ site.github.repo }}/releases">Download</a>
-      <a class="sidebar-nav-item" href="{{ site.github.repo }}">GitHub project</a>
+      <a class="sidebar-nav-item" href="{{ site.github.releases_url }}">Download</a>
+      <a class="sidebar-nav-item" href="{{ site.github.repository_url }}">GitHub project</a>
     </nav>
 
     <p>&copy; {{ site.time | date: '%Y' }} The Minimal Configuration Manager Authors</p>

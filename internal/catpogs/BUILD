@@ -15,10 +15,14 @@
 package(default_visibility = ["//:__subpackages__"])
 
 go_default_library(
+    test = 1,
     testonly = 1,
     deps = [
         "//:catalog",
         "//third_party/golang/capnproto:go_default_library",
         "//third_party/golang/capnproto:pogs",
+    ],
+    test_deps = [
+        "//:catalog",
     ],
 )

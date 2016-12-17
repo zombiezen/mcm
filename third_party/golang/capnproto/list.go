@@ -336,11 +336,14 @@ func (l TextList) BytesAt(i int) ([]byte, error) {
 // Set sets the i'th string in the list to v.
 func (l TextList) Set(i int, v string) error {
 	addr, _ := l.elem(i)
+	if v == "" {
+		return l.seg.writePtr(copyContext{}, addr, Ptr{})
+	}
 	p, err := NewText(l.seg, v)
 	if err != nil {
 		return err
 	}
-	return p.seg.writePtr(copyContext{}, addr, p.List.ToPtr())
+	return l.seg.writePtr(copyContext{}, addr, p.List.ToPtr())
 }
 
 // DataList is an array of pointers to data.
@@ -368,11 +371,14 @@ func (l DataList) At(i int) ([]byte, error) {
 // Set sets the i'th data in the list to v.
 func (l DataList) Set(i int, v []byte) error {
 	addr, _ := l.elem(i)
+	if len(v) == 0 {
+		return l.seg.writePtr(copyContext{}, addr, Ptr{})
+	}
 	p, err := NewData(l.seg, v)
 	if err != nil {
 		return err
 	}
-	return p.seg.writePtr(copyContext{}, addr, p.List.ToPtr())
+	return l.seg.writePtr(copyContext{}, addr, p.List.ToPtr())
 }
 
 // A VoidList is a list of zero-sized elements.

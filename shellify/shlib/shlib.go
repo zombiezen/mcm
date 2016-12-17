@@ -216,18 +216,23 @@ func (g *gen) file(id uint64, f catalog.File) error {
 	}
 	switch f.Which() {
 	case catalog.File_Which_plain:
-		// TODO(someday): respect file mode
-		if !f.Plain().HasContent() {
-			// TODO(soon): handle no content case
-			return errors.New("no-content plain file not implemented")
-		}
-
 		g.p(script("if [[ -h"), path, script("]]; then"))
 		g.in()
 		g.p(script("echo"), path, script("'is not a regular file' 1>&2"))
 		g.returnStatus(id, -1)
 		g.out()
 		g.p(script("fi"))
+
+		if !f.Plain().HasContent() {
+			g.p(script("if [[ ! -f"), path, script("]]; then"))
+			g.in()
+			g.p(script("echo"), path, script("'is not a regular file' 1>&2"))
+			g.returnStatus(id, -1)
+			g.out()
+			g.p(script("fi"))
+			g.returnStatus(id, 0)
+			return nil
+		}
 
 		// Write content to a temporary file
 		// Saves size in resulting script, since base64 is encoded only once.

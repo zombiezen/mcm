@@ -40,6 +40,7 @@ func TestIntegration(t *testing.T) {
 	t.Logf("using %s for bash", bashPath)
 	t.Run("Empty", func(t *testing.T) { emptyTest(t, bashPath) })
 	t.Run("File", func(t *testing.T) { fileTest(t, bashPath) })
+	t.Run("NoContentFile", func(t *testing.T) { noContentFileTest(t, bashPath) })
 	t.Run("Link", func(t *testing.T) { linkTest(t, bashPath) })
 	t.Run("Relink", func(t *testing.T) { relinkTest(t, bashPath) })
 	t.Run("SkipFail", func(t *testing.T) { skipFailTest(t, bashPath) })
@@ -91,6 +92,62 @@ func fileTest(t *testing.T, bashPath string) {
 	if !bytes.Equal(gotContent, []byte(fileContent)) {
 		t.Errorf("content of %s = %q; want %q", fpath, gotContent, fileContent)
 	}
+}
+
+func noContentFileTest(t *testing.T, bashPath string) {
+	t.Run("Exists", func(t *testing.T) {
+		root, deleteTempDir, err := makeTempDir(t)
+		if err != nil {
+			t.Fatalf("temp directory: %v", err)
+		}
+		defer deleteTempDir()
+		fpath := filepath.Join(root, "foo.txt")
+		if err := ioutil.WriteFile(fpath, []byte("data\n"), 0666); err != nil {
+			t.Fatal("WriteFile:", err)
+		}
+		c, err := (&catpogs.Catalog{
+			Resources: []*catpogs.Resource{
+				{
+					ID:      42,
+					Comment: "file",
+					Which:   catalog.Resource_Which_file,
+					File:    catpogs.PlainFile(fpath, nil),
+				},
+			},
+		}).ToCapnp()
+		if err != nil {
+			t.Fatalf("build catalog: %v", err)
+		}
+		_, err = runCatalog("noContentExists", bashPath, t, c)
+		if err != nil {
+			t.Errorf("run catalog: %v", err)
+		}
+	})
+	t.Run("NotExists", func(t *testing.T) {
+		root, deleteTempDir, err := makeTempDir(t)
+		if err != nil {
+			t.Fatalf("temp directory: %v", err)
+		}
+		defer deleteTempDir()
+		fpath := filepath.Join(root, "foo.txt")
+		c, err := (&catpogs.Catalog{
+			Resources: []*catpogs.Resource{
+				{
+					ID:      42,
+					Comment: "file",
+					Which:   catalog.Resource_Which_file,
+					File:    catpogs.PlainFile(fpath, nil),
+				},
+			},
+		}).ToCapnp()
+		if err != nil {
+			t.Fatalf("build catalog: %v", err)
+		}
+		_, err = runCatalog("noContentNotExists", bashPath, t, c)
+		if err == nil {
+			t.Error("run catalog did not fail as expected")
+		}
+	})
 }
 
 func linkTest(t *testing.T, bashPath string) {

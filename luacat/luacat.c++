@@ -58,8 +58,17 @@ private:
 namespace {
   const char* idHashPrefix = "mcm-luacat ID: ";
   const char* resourceTypeMetaKey = "mcm_resource";
+  const char* luaRefRegistryKey = "mcm::Lua";
   const uint64_t fileResId = 0x8dc4ac52b2962163;
   const uint64_t execResId = 0x984c97311006f1ca;
+
+  Lua& getLuaRef(lua_State* state) {
+    int ty = lua_getfield(state, LUA_REGISTRYINDEX, luaRefRegistryKey);
+    KJ_ASSERT(ty == LUA_TLIGHTUSERDATA);
+    auto ptr = reinterpret_cast<Lua*>(lua_touserdata(state, -1));
+    lua_pop(state, 1);
+    return *ptr;
+  }
 
   const kj::ArrayPtr<const kj::byte> luaBytePtr(lua_State* state, int index) {
     size_t len;
@@ -262,8 +271,8 @@ namespace {
     }
     lua_pop(state, 1);
 
-    Lua* l = reinterpret_cast<Lua*>(lua_touserdata(state, lua_upvalueindex(1)));
-    auto res = l->newResource();
+    auto& l = getLuaRef(state);
+    auto res = l.newResource();
     KJ_IF_MAYBE(id, getId(state, 1)) {
       res.setId(id->getValue());
       res.setComment(id->getComment());
@@ -324,9 +333,7 @@ namespace {
   };
 
   int openlib(lua_State* state) {
-    luaL_newlibtable(state, mcmlib);
-    lua_pushvalue(state, lua_upvalueindex(1));
-    luaL_setfuncs(state, mcmlib, 1);
+    luaL_newlib(state, mcmlib);
 
     lua_newtable(state);
     lua_createtable(state, 0, 1);  // new metatable
@@ -345,6 +352,7 @@ namespace {
     {LUA_STRLIBNAME, luaopen_string},
     {LUA_MATHLIBNAME, luaopen_math},
     {LUA_UTF8LIBNAME, luaopen_utf8},
+    {"mcm", openlib},
     {NULL, NULL}
   };
 }  // namespace
@@ -352,27 +360,13 @@ namespace {
 Lua::Lua() {
   state = luaL_newstate();
   KJ_ASSERT_NONNULL(state);
+  lua_pushlightuserdata(state, this);
+  lua_setfield(state, LUA_REGISTRYINDEX, luaRefRegistryKey);
   const luaL_Reg *lib;
   for (lib = loadedlibs; lib->func; lib++) {
     luaL_requiref(state, lib->name, lib->func, 1);
     lua_pop(state, 1);  // remove lib
   }
-
-  luaL_getsubtable(state, LUA_REGISTRYINDEX, "_LOADED");
-  lua_getfield(state, -1, "mcm");  // _LOADED["mcm"]
-  if (!lua_toboolean(state, -1)) {  // package not already loaded?
-    lua_pop(state, 1);  // remove field
-    lua_pushlightuserdata(state, this);
-    lua_pushcclosure(state, openlib, 1);
-    lua_pushstring(state, "mcm");  // argument to open function
-    lua_call(state, 1, 1);  // call openlib to open module
-    lua_pushvalue(state, -1);  // make copy of module (call result)
-    lua_setfield(state, -3, "mcm");  // _LOADED["mcm"] = module
-  }
-  lua_remove(state, -2);  // remove _LOADED table
-  lua_setglobal(state, "mcm");  // _G["mcm"] = module
-
-  KJ_ASSERT(lua_gettop(state) == 0, "all elements should have been popped");
 }
 
 void Lua::exec(kj::StringPtr fname) {

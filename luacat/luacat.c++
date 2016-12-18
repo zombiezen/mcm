@@ -110,18 +110,26 @@ namespace {
   }
 
   void setResourceType(lua_State* state, int index, uint64_t val) {
-    // Get or create metatable and leave it at top of stack.
-    if (!lua_getmetatable(state, index)) {
+    if (index < 0) {
+      index = lua_gettop(state) + index + 1;
+    }
+
+    // Create metatable and leave it at top of stack.
+    lua_createtable(state, 0, 1);
+    if (lua_getmetatable(state, index)) {
+      // If there was an existing metatable, then setmetatable(newmeta, {__index = oldmeta})
       lua_createtable(state, 0, 1);
-      lua_pushvalue(state, -1);
-      lua_setmetatable(state, index);  // pops the table
+      lua_pushvalue(state, -2);  // move oldmeta to top
+      lua_setfield(state, -2, "__index");
+      lua_setmetatable(state, -3);
+      lua_pop(state, 1);  // pop oldmeta
     }
 
     // metatable[resourceTypeMetaKey] = resourceType(val)
     pushResourceType(state, val);
     lua_setfield(state, -2, resourceTypeMetaKey);
 
-    lua_pop(state, 1);
+    lua_setmetatable(state, index);
   }
 
   int filefunc(lua_State* state) {

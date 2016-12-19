@@ -363,9 +363,38 @@ namespace {
     {"mcm", openlib},
     {NULL, NULL}
   };
+
+  int printfunc(lua_State *state) {
+    // Customized implementation of print().
+    // We could customize this in vendored copy, but this keeps the
+    // application/vendored code separation clean.
+
+    int n = lua_gettop(state);  // number of arguments
+    int i;
+    lua_getglobal(state, "tostring");
+    for (i = 1; i <= n; i++) {
+      const char *s;
+      size_t l;
+      lua_pushvalue(state, -1);  // function to be called
+      lua_pushvalue(state, i);   // value to print
+      lua_call(state, 1, 1);
+      s = lua_tolstring(state, -1, &l);  // get result
+      if (s == NULL) {
+        return luaL_error(state, "'tostring' must return a string to 'print'");
+      }
+      if (i > 1) {
+        write(STDERR_FILENO, "\t", 1);
+      }
+      write(STDERR_FILENO, s, l);
+      lua_pop(state, 1);  // pop result
+    }
+    write(STDERR_FILENO, "\n", 1);
+    return 0;
+  }
 }  // namespace
 
 Lua::Lua() {
+  // TODO(someday): use lua_newstate and set atpanic
   state = luaL_newstate();
   KJ_ASSERT_NONNULL(state);
   lua_pushlightuserdata(state, this);
@@ -375,6 +404,12 @@ Lua::Lua() {
     luaL_requiref(state, lib->name, lib->func, 1);
     lua_pop(state, 1);  // remove lib
   }
+
+  // Override print function.
+  lua_getglobal(state, "_G");
+  lua_pushcfunction(state, printfunc);
+  lua_setfield(state, -2, "print");
+  lua_pop(state, 1);
 }
 
 void Lua::exec(kj::StringPtr fname) {

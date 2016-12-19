@@ -12,43 +12,39 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-MAIN_SRCS = ["luacat.c++"]
-TEST_GLOB = ["*-test.c++"]
+package(
+    default_testonly = 1,
+    default_visibility = ["//visibility:public"],
+)
+licenses(["notice"])  # BSD
 
-cc_binary(
-    name = "mcm-luacat",
-    srcs = MAIN_SRCS,
-    deps = [
-        ":luacat",
-        "//third_party/capnproto:kj",
+cc_library(
+    name = "gtest",
+    srcs = glob(
+        [
+            "googletest/src/*.cc",
+            "googletest/src/*.h",
+        ],
+        exclude = [
+            "googletest/src/gtest-all.cc",
+            "googletest/src/gtest_main.cc",
+        ],
+    ),
+    hdrs = glob([
+        "googletest/include/**/*.h",
+    ]),
+    includes = [
+        "googletest/include",
     ],
+    copts = [
+        "-Iexternal/gtest/googletest",
+    ],
+    linkopts = ["-pthread"],
+    testonly = 1,
 )
 
 cc_library(
-    name = "luacat",
-    srcs = glob(
-        [
-            "*.c++",
-            "*.h",
-        ],
-        exclude = MAIN_SRCS + TEST_GLOB,
-    ),
-    deps = [
-        "//:catalog_cc",
-        "//third_party/capnproto:capnp_lib",
-        "//third_party/capnproto:kj",
-        "//third_party/lua:lib",
-        "@boringssl//:crypto",
-    ],
-)
-
-cc_test(
-    name = "tests",
-    srcs = glob(TEST_GLOB),
-    size = "small",
-    deps = [
-        ":luacat",
-        "//:catalog_cc",
-        "@gtest//:gtest_main",
-    ],
+    name = "gtest_main",
+    srcs = ["googletest/src/gtest_main.cc"],
+    deps = [":gtest"],
 )

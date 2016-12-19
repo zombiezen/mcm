@@ -29,6 +29,7 @@
 #include "openssl/sha.h"
 
 #include "catalog.capnp.h"
+#include "luacat/types.h"
 #include "luacat/value.h"
 
 namespace mcm {
@@ -48,8 +49,6 @@ public:
   ~Lua();
 
 private:
-  kj::StringPtr toString(int index);
-
   lua_State* state;
   capnp::MallocMessageBuilder scratch;
   kj::Vector<capnp::Orphan<Resource>> resources;
@@ -68,18 +67,6 @@ namespace {
     auto ptr = reinterpret_cast<Lua*>(lua_touserdata(state, -1));
     lua_pop(state, 1);
     return *ptr;
-  }
-
-  const kj::ArrayPtr<const kj::byte> luaBytePtr(lua_State* state, int index) {
-    size_t len;
-    auto s = reinterpret_cast<const kj::byte*>(lua_tolstring(state, index, &len));
-    return kj::ArrayPtr<const kj::byte>(s, len);
-  }
-
-  const kj::StringPtr luaStringPtr(lua_State* state, int index) {
-    size_t len;
-    const char* s = lua_tolstring(state, index, &len);
-    return kj::StringPtr(s, len);
   }
 
   uint64_t idHash(kj::StringPtr s) {

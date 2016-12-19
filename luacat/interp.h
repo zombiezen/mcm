@@ -12,48 +12,53 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#ifndef MCM_LUACAT_INTERP_H_
+#define MCM_LUACAT_INTERP_H_
+
 #include <unistd.h>
 
-#include "kj/main.h"
-#include "kj/io.h"
+#include "kj/common.h"
 #include "kj/string.h"
+#include "kj/vector.h"
 #include "capnp/message.h"
-#include "capnp/serialize.h"
-#include "luacat/interp.h"
+
+extern "C" {
+#include "lua.h"
+}
+
+#include "catalog.capnp.h"
 
 namespace mcm {
 
 namespace luacat {
 
-class Main {
+class Lua {
+  // The Lua interpreter.
+  // Typical usage is one or more calls to exec followed by a call to finish.
+
 public:
-  Main(kj::ProcessContext& context): context(context) {}
+  Lua();
+  KJ_DISALLOW_COPY(Lua);
 
-  kj::MainBuilder::Validity processFile(kj::StringPtr src) {
-    if (src.size() == 0) {
-      return kj::str("empty source");
-    }
-    Lua l;
-    l.exec(src);
-    capnp::MallocMessageBuilder message;
-    l.finish(message);
-    kj::FdOutputStream out(STDOUT_FILENO);
-    capnp::writeMessage(out, message);
+  void exec(kj::StringPtr fname);
+  // Run the Lua file at the given path.
+  // Throws an exception if there is an error.
 
-    return true;
-  }
+  Resource::Builder newResource();
+  // (Mostly internal.) Add a new resource to the resulting catalog.
 
-  kj::MainFunc getMain() {
-    return kj::MainBuilder(context, "mcm-luacat", "Interprets Lua source and generates an mcm catalog.")
-        .expectArg("FILE", KJ_BIND_METHOD(*this, processFile))
-        .build();
-  }
+  void finish(capnp::MessageBuilder& message);
+  // Build the catalog message.
+
+  ~Lua();
 
 private:
-  kj::ProcessContext& context;
+  lua_State* state;
+  capnp::MallocMessageBuilder scratch;
+  kj::Vector<capnp::Orphan<Resource>> resources;
 };
 
 }  // namespace luacat
 }  // namespace mcm
 
-KJ_MAIN(mcm::luacat::Main)
+#endif  // MCM_LUACAT_INTERP_H_

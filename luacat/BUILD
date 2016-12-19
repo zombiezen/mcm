@@ -12,12 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+MAIN_SRCS = ["luacat.c++"]
+
 cc_binary(
     name = "mcm-luacat",
-    srcs = glob([
-        "*.c++",
-        "*.h",
-    ]),
+    srcs = MAIN_SRCS,
+    deps = [
+        ":luacat",
+        "//third_party/capnproto:kj",
+    ],
+)
+
+cc_library(
+    name = "luacat",
+    srcs = glob(
+        [
+            "*.c++",
+            "*.h",
+        ],
+        exclude = MAIN_SRCS,
+    ),
     deps = [
         "//:catalog_cc",
         "//third_party/capnproto:capnp_lib",

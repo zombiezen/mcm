@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#ifndef MCM_LUACAT_VALUE_H_
+#define MCM_LUACAT_VALUE_H_
+
 #include <unistd.h>
 #include <stdint.h>
 
@@ -49,3 +52,5 @@ kj::Maybe<const Id&> getId(lua_State* state, int index);
 
 }  // namespace luacat
 }  // namespace mcm
+
+#endif  // MCM_LUACAT_VALUE_H_

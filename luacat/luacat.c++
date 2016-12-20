@@ -33,11 +33,12 @@ public:
     if (src.size() == 0) {
       return kj::str("empty source");
     }
-    Lua l;
+    kj::FdOutputStream out(STDOUT_FILENO);
+    kj::FdOutputStream err(STDERR_FILENO);
+    Lua l(err);
     l.exec(src);
     capnp::MallocMessageBuilder message;
     l.finish(message);
-    kj::FdOutputStream out(STDOUT_FILENO);
     capnp::writeMessage(out, message);
 
     return true;

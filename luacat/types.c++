@@ -18,6 +18,23 @@ namespace mcm {
 
 namespace luacat {
 
+namespace {
+  struct Reader {
+    static const int bufSize = 4096;
+
+    kj::InputStream& stream;
+    kj::byte buf[bufSize];
+
+    explicit Reader(kj::InputStream& s) : stream(s) {}
+  };
+
+  const char* readStream(lua_State* state, void* data, size_t* size) {
+    auto& reader = *reinterpret_cast<Reader*>(data);
+    *size = reader.stream.tryRead(reader.buf, 1, Reader::bufSize);
+    return reinterpret_cast<char*>(reader.buf);
+  }
+}  // namespace
+
 const kj::ArrayPtr<const kj::byte> luaBytePtr(lua_State* state, int index) {
   size_t len = 0;
   auto s = reinterpret_cast<const kj::byte*>(lua_tolstring(state, index, &len));
@@ -28,6 +45,11 @@ const kj::StringPtr luaStringPtr(lua_State* state, int index) {
   size_t len = 0;
   const char* s = lua_tolstring(state, index, &len);
   return kj::StringPtr(s, len);
+}
+
+int luaLoad(lua_State* state, kj::StringPtr name, kj::InputStream& stream) {
+  Reader reader(stream);
+  return lua_load(state, readStream, &reader, name.cStr(), NULL);
 }
 
 }  // namespace luacat

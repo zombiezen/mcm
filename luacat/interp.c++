@@ -14,6 +14,7 @@
 
 #include "luacat/interp.h"
 
+#include <fcntl.h>
 #include "kj/array.h"
 #include "kj/debug.h"
 #include "kj/string.h"
@@ -335,6 +336,7 @@ namespace {
     // We could customize this in vendored copy, but this keeps the
     // application/vendored code separation clean.
 
+    auto& stream = getLuaRef(state).getLog();
     int n = lua_gettop(state);  // number of arguments
     int i;
     lua_getglobal(state, "tostring");
@@ -349,17 +351,17 @@ namespace {
         return luaL_error(state, "'tostring' must return a string to 'print'");
       }
       if (i > 1) {
-        write(STDERR_FILENO, "\t", 1);
+        stream.write("\t", 1);
       }
-      write(STDERR_FILENO, s, l);
+      stream.write(s, l);
       lua_pop(state, 1);  // pop result
     }
-    write(STDERR_FILENO, "\n", 1);
+    stream.write("\n", 1);
     return 0;
   }
 }  // namespace
 
-Lua::Lua() {
+Lua::Lua(kj::OutputStream& ls) : logStream(ls) {
   // TODO(someday): use lua_newstate and set atpanic
   state = luaL_newstate();
   KJ_ASSERT_NONNULL(state);
@@ -379,7 +381,15 @@ Lua::Lua() {
 }
 
 void Lua::exec(kj::StringPtr fname) {
-  if (luaL_loadfile(state, fname.cStr()) || lua_pcall(state, 0, 0, 0)) {
+  int fd = open(fname.cStr(), O_RDONLY, 0);
+  KJ_ASSERT(fd != -1);
+  kj::AutoCloseFd afd(fd);
+  kj::FdInputStream stream(kj::mv(afd));
+  exec(fname, stream);
+}
+
+void Lua::exec(kj::StringPtr name, kj::InputStream& stream) {
+  if (luaLoad(state, name, stream) || lua_pcall(state, 0, 0, 0)) {
     auto errMsg = kj::heapString(luaStringPtr(state, -1));
     lua_pop(state, 1);
     KJ_FAIL_ASSERT(errMsg);

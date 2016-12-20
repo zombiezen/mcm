@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #include "kj/common.h"
+#include "kj/io.h"
 #include "kj/string.h"
 #include "kj/vector.h"
 #include "capnp/message.h"
@@ -37,12 +38,16 @@ class Lua {
   // Typical usage is one or more calls to exec followed by a call to finish.
 
 public:
-  Lua();
+  explicit Lua(kj::OutputStream& ls);
   KJ_DISALLOW_COPY(Lua);
+
+  inline kj::OutputStream& getLog() { return logStream; }
 
   void exec(kj::StringPtr fname);
   // Run the Lua file at the given path.
-  // Throws an exception if there is an error.
+
+  void exec(kj::StringPtr name, kj::InputStream& stream);
+  // Run the Lua file from the given stream.
 
   Resource::Builder newResource();
   // (Mostly internal.) Add a new resource to the resulting catalog.
@@ -56,6 +61,7 @@ private:
   lua_State* state;
   capnp::MallocMessageBuilder scratch;
   kj::Vector<capnp::Orphan<Resource>> resources;
+  kj::OutputStream& logStream;
 };
 
 }  // namespace luacat

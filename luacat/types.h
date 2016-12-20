@@ -14,10 +14,12 @@
 
 #ifndef MCM_LUACAT_TYPES_H_
 #define MCM_LUACAT_TYPES_H_
+// Conversions between Lua built-in types and C++ (KJ) types.
 
 #include <unistd.h>
 
 #include "kj/array.h"
+#include "kj/io.h"
 #include "kj/string.h"
 
 extern "C" {
@@ -37,6 +39,8 @@ const kj::StringPtr luaStringPtr(lua_State* state, int index);
 // Converts the Lua value at the given index to a string.
 // The memory is owned by Lua, so the caller must keep the Lua value on
 // the stack while the return value is live.
+
+int luaLoad(lua_State* state, kj::StringPtr name, kj::InputStream& stream);
 
 }  // namespace luacat
 }  // namespace mcm

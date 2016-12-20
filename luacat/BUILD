@@ -48,7 +48,28 @@ cc_test(
     size = "small",
     deps = [
         ":luacat",
+        ":testsuite",
         "//:catalog_cc",
         "@gtest//:gtest_main",
+    ],
+)
+
+capnp_library(
+    name = "testsuite_capnp",
+    src = "testsuite.capnp",
+    testonly = 1,
+    deps = [
+        "//:catalog_capnp",
+        "//third_party/capnproto:cc",
+    ],
+)
+
+capnp_cc_library(
+    name = "testsuite",
+    lib = ":testsuite_capnp",
+    basename = "testsuite.capnp",
+    testonly = 1,
+    deps = [
+        "//:catalog_cc",
     ],
 )

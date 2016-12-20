@@ -23,6 +23,7 @@ capnp_library(
         "//third_party/capnproto:cc",
         "//third_party/golang/capnproto/std:go_capnp",
     ],
+    visibility = ["//visibility:public"],
 )
 
 capnp_cc_library(

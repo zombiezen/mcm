@@ -49,7 +49,7 @@ mcm.resource(
   mcm.file{
     path = "/etc/hello.txt",
     plain = {content = "Hello, World!\n"},
-  },
+  }
 )
 
 mcm.resource(
@@ -57,7 +57,7 @@ mcm.resource(
   {"hello"},  -- this resource depends on "hello" finishing successfully
   mcm.exec{
     argv = {"/usr/bin/apt-get", "update"},
-  },
+  }
 )
 ```
 

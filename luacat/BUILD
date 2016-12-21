@@ -58,6 +58,9 @@ capnp_library(
     name = "testsuite_capnp",
     src = "testsuite.capnp",
     testonly = 1,
+    data = [
+        "testdata/file.lua",
+    ],
     deps = [
         "//:catalog_capnp",
         "//third_party/capnproto:cc",

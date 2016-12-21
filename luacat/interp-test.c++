@@ -16,6 +16,7 @@
 
 #include <iostream>
 #include "gtest/gtest.h"
+#include "capnp/any.h"
 #include "kj/io.h"
 #include "kj/string.h"
 
@@ -32,6 +33,13 @@ namespace kj {
 
   inline void PrintTo(kj::StringPtr s, ::std::ostream* os) {
     os->write(s.begin(), s.size());
+  }
+}
+
+namespace capnp {
+  inline void PrintTo(capnp::Equality eq, ::std::ostream* os) {
+    auto s = kj::str(eq);
+    kj::PrintTo(s, os);
   }
 }
 
@@ -60,7 +68,15 @@ TEST(LuaTest, TestSuite) {
     capnp::MallocMessageBuilder message;
     l.finish(message);
 
-    // TODO(soon): check catalogs for equality, if need be
+    if (testCase.getExpected().hasCatalog()) {
+      auto catalog = message.getRoot<mcm::Catalog>().asReader();
+      auto catalogStr = kj::str(catalog);
+      capnp::AnyStruct::Reader catalogAny(catalog);
+      auto wantCatalog = testCase.getExpected().getCatalog();
+      auto wantCatalogStr = kj::str(wantCatalog);
+      capnp::AnyStruct::Reader wantCatalogAny(wantCatalog);
+      EXPECT_EQ(capnp::Equality::EQUAL, catalogAny.equals(wantCatalogAny)) << "got:  " << catalogStr.cStr() << "\nwant: " << wantCatalogStr.cStr();
+    }
     auto outArray = logBufStream.getArray();
     auto outString = kj::heapString(reinterpret_cast<char*>(outArray.begin()), outArray.size());
     EXPECT_EQ(testCase.getExpected().getOutput(), outString);

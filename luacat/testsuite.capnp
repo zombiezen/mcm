@@ -50,5 +50,30 @@ const testSuite :TestSuite = (
       script = "print(\"Hello, World!\")\n",
       expected = (output = "Hello, World!\n"),
     ),
+    (
+      name = "mcm global exists",
+      script = "print(mcm ~= nil)\n",
+      expected = (output = "true\n"),
+    ),
+    (
+      name = "file resource",
+      script = embed "testdata/file.lua",
+      expected = (
+        catalog = (
+          resources = [
+            (
+              id = 0x20e102f0f9e2b11d,
+              comment = "hello",
+              file = (
+                path = "/etc/hello.txt",
+                plain = (
+                  content = "Hello, World!\n",
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
   ]
 );

@@ -75,5 +75,36 @@ const testSuite :TestSuite = (
         ),
       ),
     ),
+    (
+      name = "deps changed",
+      script = embed "testdata/depschanged.lua",
+      expected = (
+        catalog = (
+          resources = [
+            (
+              id = 0xd96f419065c49db1,
+              comment = "xyzzy!",
+              file = (
+                path = "/etc/motd",
+                plain = (),
+              ),
+            ),
+            (
+              id = 0x3d784cfc26097123,
+              comment = "apt-get update",
+              dependencies = [0xd96f419065c49db1],
+              exec = (
+                condition = (
+                  ifDepsChanged = [0xd96f419065c49db1],
+                ),
+                command = (
+                  argv = ["/usr/bin/apt-get", "update"],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
   ]
 );

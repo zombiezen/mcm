@@ -56,7 +56,9 @@ mcm.resource(
   "apt-get update",
   {"hello"},  -- this resource depends on "hello" finishing successfully
   mcm.exec{
-    argv = {"/usr/bin/apt-get", "update"},
+    command = {
+      argv = {"/usr/bin/apt-get", "update"},
+    },
   }
 )
 ```

@@ -200,6 +200,17 @@ namespace {
       return;
     }
     switch (builder.getSchema().whichElementType()) {
+    case capnp::schema::Type::UINT64:
+      for (lua_Integer i = 0; i < builder.size(); i++) {
+        if (lua_geti(state, -1, i + 1) != LUA_TNUMBER) {
+          luaL_error(state, "copyList: found non-number in List(UInt64)");
+          return;
+        }
+        capnp::DynamicValue::Reader val(static_cast<uint64_t>(lua_tointeger(state, -1)));
+        builder.set(i, val);
+        lua_pop(state, 1);
+      }
+      break;
     case capnp::schema::Type::TEXT:
       for (lua_Integer i = 0; i < builder.size(); i++) {
         if (lua_geti(state, -1, i + 1) != LUA_TSTRING) {

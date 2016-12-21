@@ -67,6 +67,7 @@ def _build_filemap(schemas):
 
 def _capnp_schema_impl(ctx):
   src = ctx.file.src
+  data = ctx.files.data
   deps = ctx.attr.deps
   out = ctx.outputs.capnp_out
   capnp_tool = ctx.executable._capnp_tool
@@ -82,7 +83,7 @@ def _capnp_schema_impl(ctx):
           src.path]
   cmds += [" ".join(args) + " > " + out.path]
   ctx.action(
-      inputs = list(transitive_schemas) + [capnp_tool],
+      inputs = list(transitive_schemas) + [capnp_tool] + data,
       outputs = [out],
       mnemonic = "CapnpCompile",
       command = " && ".join(cmds))
@@ -92,6 +93,7 @@ def _capnp_schema_impl(ctx):
 
 
 _capnp_attrs = {
+    "data": attr.label_list(allow_files=True, allow_empty=True),
     "deps": attr.label_list(providers=["capnp_schemas"]),
     "licenses": attr.license(),
     "_capnp_tool": attr.label(
@@ -234,6 +236,7 @@ def capnp_cc_library(
 def _capnp_eval_impl(ctx):
   src = ctx.file.src
   symbol = ctx.attr.symbol
+  data = ctx.files.data
   deps = ctx.attr.deps
   out = ctx.outputs.out
   capnp_tool = ctx.executable._capnp_tool
@@ -253,7 +256,7 @@ def _capnp_eval_impl(ctx):
   args += [ctx.file.src.path, symbol]
   cmds += [" ".join(args) + " > " + out.path]
   ctx.action(
-      inputs = list(transitive_schemas) + [capnp_tool],
+      inputs = list(transitive_schemas) + [capnp_tool] + data,
       outputs = [out],
       mnemonic = "CapnpEval",
       command = " && ".join(cmds))

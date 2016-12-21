@@ -14,6 +14,8 @@
 
 #include "luacat/types.h"
 
+#include "lua.hpp"
+
 namespace mcm {
 
 namespace luacat {
@@ -50,6 +52,124 @@ const kj::StringPtr luaStringPtr(lua_State* state, int index) {
 int luaLoad(lua_State* state, kj::StringPtr name, kj::InputStream& stream) {
   Reader reader(stream);
   return lua_load(state, readStream, &reader, name.cStr(), NULL);
+}
+
+void copyStruct(lua_State* state, capnp::DynamicStruct::Builder builder) {
+  if (!lua_istable(state, -1)) {
+    luaL_error(state, "copyStruct: not a table");
+    return;
+  }
+  if (!lua_checkstack(state, 2)) {
+    luaL_error(state, "copyStruct: recursion depth exceeded");
+    return;
+  }
+  lua_pushnil(state);
+  while (lua_next(state, -2)) {
+    if (!lua_isstring(state, -2)) {
+      luaL_error(state, "copyStruct: non-string key in table");
+      return;
+    }
+    auto key = luaStringPtr(state, -2);
+
+    KJ_IF_MAYBE(field, builder.getSchema().findFieldByName(key)) {
+      switch (field->getType().which()) {
+      case capnp::schema::Type::TEXT:
+        if (lua_isstring(state, -1)) {
+          capnp::DynamicValue::Reader val(lua_tostring(state, -1));
+          builder.set(*field, val);
+        } else {
+          luaL_error(state, "copyStruct: non-string value for field %s", key);
+          return;
+        }
+        break;
+      case capnp::schema::Type::DATA:
+        if (lua_isstring(state, -1)) {
+          capnp::DynamicValue::Reader val(luaBytePtr(state, -1));
+          builder.set(*field, val);
+        } else {
+          luaL_error(state, "copyStruct: non-data value for field %s", key);
+          return;
+        }
+        break;
+      case capnp::schema::Type::STRUCT:
+        if (lua_istable(state, -1)) {
+          auto sub = builder.init(*field).as<capnp::DynamicStruct>();
+          copyStruct(state, sub);
+        } else {
+          luaL_error(state, "copyStruct: non-struct value for field %s", key);
+          return;
+        }
+        break;
+      case capnp::schema::Type::LIST:
+        if (lua_istable(state, -1)) {
+          lua_len(state, -1);
+          lua_Integer n = lua_tointeger(state, -1);
+          lua_pop(state, 1);
+          auto sub = builder.init(*field, n).as<capnp::DynamicList>();
+          if (n > 0) {
+            copyList(state, sub);
+          }
+        } else {
+          luaL_error(state, "copyStruct: non-list value for field %s", key);
+          return;
+        }
+        break;
+      // TODO(soon): all the other types
+      default:
+        luaL_error(state, "copyStruct: can't map field %s type %d to Lua", key, field->getType().which());
+        return;
+      }
+    } else {
+      luaL_error(state, "copyStruct: unknown field '%s' in table", key);
+      return;
+    }
+
+    lua_pop(state, 1);  // pop value, now key is on top.
+  }
+}
+
+void copyList(lua_State* state, capnp::DynamicList::Builder builder) {
+  if (!lua_checkstack(state, 2)) {
+    luaL_error(state, "copyList: recursion depth exceeded");
+    return;
+  }
+  switch (builder.getSchema().whichElementType()) {
+  case capnp::schema::Type::UINT64:
+    for (lua_Integer i = 0; i < builder.size(); i++) {
+      if (lua_geti(state, -1, i + 1) != LUA_TNUMBER) {
+        luaL_error(state, "copyList: found non-number in List(UInt64)");
+        return;
+      }
+      capnp::DynamicValue::Reader val(static_cast<uint64_t>(lua_tointeger(state, -1)));
+      builder.set(i, val);
+      lua_pop(state, 1);
+    }
+    break;
+  case capnp::schema::Type::TEXT:
+    for (lua_Integer i = 0; i < builder.size(); i++) {
+      if (lua_geti(state, -1, i + 1) != LUA_TSTRING) {
+        luaL_error(state, "copyList: found non-string in List(Text)");
+        return;
+      }
+      capnp::DynamicValue::Reader val(lua_tostring(state, -1));
+      builder.set(i, val);
+      lua_pop(state, 1);
+    }
+    break;
+  case capnp::schema::Type::STRUCT:
+    for (lua_Integer i = 0; i < builder.size(); i++) {
+      if (lua_geti(state, -1, i) != LUA_TTABLE) {
+        luaL_error(state, "copyList: found non-table in List(Text)");
+        return;
+      }
+      copyStruct(state, builder[i].as<capnp::DynamicStruct>());
+      lua_pop(state, 1);
+    }
+    break;
+  default:
+    luaL_error(state, "copyList: can't map type %d to Lua", builder.getSchema().whichElementType());
+    return;
+  }
 }
 
 }  // namespace luacat

@@ -21,6 +21,7 @@
 #include "kj/array.h"
 #include "kj/io.h"
 #include "kj/string.h"
+#include "capnp/dynamic.h"
 
 extern "C" {
 #include "lua.h"
@@ -41,6 +42,12 @@ const kj::StringPtr luaStringPtr(lua_State* state, int index);
 // the stack while the return value is live.
 
 int luaLoad(lua_State* state, kj::StringPtr name, kj::InputStream& stream);
+
+void copyStruct(lua_State* state, capnp::DynamicStruct::Builder builder);
+// Converts the Lua value at the top of the stack into a Cap'n Proto struct.
+
+void copyList(lua_State* state, capnp::DynamicList::Builder builder);
+// Converts the Lua value at the top of the stack into a Cap'n Proto list.
 
 }  // namespace luacat
 }  // namespace mcm

@@ -45,9 +45,11 @@ int luaLoad(lua_State* state, kj::StringPtr name, kj::InputStream& stream);
 
 void copyStruct(lua_State* state, capnp::DynamicStruct::Builder builder);
 // Converts the Lua value at the top of the stack into a Cap'n Proto struct.
+// Throws kj::Exception on input validation error.
 
 void copyList(lua_State* state, capnp::DynamicList::Builder builder);
 // Converts the Lua value at the top of the stack into a Cap'n Proto list.
+// Throws kj::Exception on input validation error.
 
 }  // namespace luacat
 }  // namespace mcm

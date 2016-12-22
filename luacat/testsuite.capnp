@@ -38,6 +38,37 @@ struct TestCase {
   }
 }
 
+struct GenericValue {
+  union {
+    void @0 :Void;
+    bool @1 :Bool;
+    int8 @2 :Int8;
+    int16 @3 :Int16;
+    int32 @4 :Int32;
+    int64 @5 :Int64;
+    uint8 @6 :UInt8;
+    uint16 @7 :UInt16;
+    uint32 @8 :UInt32;
+    uint64 @9 :UInt64;
+    float32 @10 :Float32;
+    float64 @11 :Float64;
+    text @12 :Text;
+    data @13 :Data;
+
+    structList @14 :List(GenericValue);
+    boolList @17 :List(Bool);
+
+    enum @15 :Subject;
+    struct @16 :GenericValue;
+  }
+}
+
+enum Subject {
+  this @0;
+  that @1;
+  other @2;
+}
+
 const testSuite :TestSuite = (
   tests = [
     (

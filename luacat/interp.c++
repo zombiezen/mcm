@@ -17,6 +17,7 @@
 #include <fcntl.h>
 #include "kj/array.h"
 #include "kj/debug.h"
+#include "kj/exception.h"
 #include "kj/string.h"
 #include "kj/vector.h"
 #include "capnp/message.h"
@@ -173,13 +174,25 @@ namespace {
     case fileResId:
       {
         auto f = res.initFile();
-        copyStruct(state, f);
+        auto maybeExc = kj::runCatchingExceptions([state, &f]() {
+          copyStruct(state, f);
+        });
+        KJ_IF_MAYBE(e, maybeExc) {
+          luaL_error(state, "%s", e->getDescription().cStr());
+          return 0;  // unreachable
+        }
       }
       break;
     case execResId:
       {
         auto e = res.initExec();
-        copyStruct(state, e);
+        auto maybeExc = kj::runCatchingExceptions([state, &e]() {
+          copyStruct(state, e);
+        });
+        KJ_IF_MAYBE(e, maybeExc) {
+          luaL_error(state, "%s", e->getDescription().cStr());
+          return 0;  // unreachable
+        }
       }
       break;
     default:

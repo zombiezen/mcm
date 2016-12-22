@@ -14,6 +14,7 @@
 
 #include "luacat/types.h"
 
+#include "kj/debug.h"
 #include "lua.hpp"
 
 namespace mcm {
@@ -55,73 +56,108 @@ int luaLoad(lua_State* state, kj::StringPtr name, kj::InputStream& stream) {
 }
 
 void copyStruct(lua_State* state, capnp::DynamicStruct::Builder builder) {
-  if (!lua_istable(state, -1)) {
-    luaL_error(state, "copyStruct: not a table");
-    return;
-  }
-  if (!lua_checkstack(state, 2)) {
-    luaL_error(state, "copyStruct: recursion depth exceeded");
-    return;
-  }
+  KJ_ASSERT(lua_checkstack(state, 2), "recursion depth exceeded");
+  auto structName = builder.getSchema().getShortDisplayName();
+  KJ_CONTEXT(structName);
+  KJ_REQUIRE(lua_istable(state, -1), "value must be a table");
   lua_pushnil(state);
   while (lua_next(state, -2)) {
-    if (!lua_isstring(state, -2)) {
-      luaL_error(state, "copyStruct: non-string key in table");
-      return;
-    }
+    KJ_REQUIRE(lua_isstring(state, -2), "non-string key in table");
     auto key = luaStringPtr(state, -2);
+    KJ_CONTEXT(key);
 
-    KJ_IF_MAYBE(field, builder.getSchema().findFieldByName(key)) {
-      switch (field->getType().which()) {
-      case capnp::schema::Type::TEXT:
-        if (lua_isstring(state, -1)) {
-          capnp::DynamicValue::Reader val(lua_tostring(state, -1));
-          builder.set(*field, val);
-        } else {
-          luaL_error(state, "copyStruct: non-string value for field %s", key);
-          return;
-        }
-        break;
-      case capnp::schema::Type::DATA:
-        if (lua_isstring(state, -1)) {
-          capnp::DynamicValue::Reader val(luaBytePtr(state, -1));
-          builder.set(*field, val);
-        } else {
-          luaL_error(state, "copyStruct: non-data value for field %s", key);
-          return;
-        }
-        break;
-      case capnp::schema::Type::STRUCT:
-        if (lua_istable(state, -1)) {
-          auto sub = builder.init(*field).as<capnp::DynamicStruct>();
-          copyStruct(state, sub);
-        } else {
-          luaL_error(state, "copyStruct: non-struct value for field %s", key);
-          return;
-        }
-        break;
-      case capnp::schema::Type::LIST:
-        if (lua_istable(state, -1)) {
-          lua_len(state, -1);
-          lua_Integer n = lua_tointeger(state, -1);
-          lua_pop(state, 1);
-          auto sub = builder.init(*field, n).as<capnp::DynamicList>();
-          if (n > 0) {
-            copyList(state, sub);
-          }
-        } else {
-          luaL_error(state, "copyStruct: non-list value for field %s", key);
-          return;
-        }
-        break;
-      // TODO(soon): all the other types
-      default:
-        luaL_error(state, "copyStruct: can't map field %s type %d to Lua", key, field->getType().which());
-        return;
+    auto field = KJ_REQUIRE_NONNULL(builder.getSchema().findFieldByName(key), "could not find field");
+    switch (field.getType().which()) {
+    case capnp::schema::Type::VOID:
+      {
+        capnp::DynamicValue::Reader val(capnp::VOID);
+        builder.set(field, val);
       }
-    } else {
-      luaL_error(state, "copyStruct: unknown field '%s' in table", key);
-      return;
+      break;
+    case capnp::schema::Type::BOOL:
+      {
+        KJ_REQUIRE(lua_isboolean(state, -1), "non-boolean value");
+        capnp::DynamicValue::Reader val(static_cast<bool>(lua_toboolean(state, -1)));
+        builder.set(field, val);
+      }
+      break;
+    case capnp::schema::Type::INT8:
+    case capnp::schema::Type::INT16:
+    case capnp::schema::Type::INT32:
+    case capnp::schema::Type::INT64:
+      {
+        KJ_REQUIRE(lua_isnumber(state, -1), "non-number value");
+        int isint = 0;
+        capnp::DynamicValue::Reader val(static_cast<int64_t>(lua_tointegerx(state, -1, &isint)));
+        KJ_REQUIRE(isint, "non-integer value");
+        builder.set(field, val);
+      }
+      break;
+    case capnp::schema::Type::UINT8:
+    case capnp::schema::Type::UINT16:
+    case capnp::schema::Type::UINT32:
+    case capnp::schema::Type::UINT64:
+      {
+        KJ_REQUIRE(lua_isnumber(state, -1), "non-number value");
+        int isint = 0;
+        capnp::DynamicValue::Reader val(static_cast<uint64_t>(lua_tointegerx(state, -1, &isint)));
+        KJ_REQUIRE(isint, "non-integer value");
+        builder.set(field, val);
+      }
+      break;
+    case capnp::schema::Type::FLOAT32:
+    case capnp::schema::Type::FLOAT64:
+      {
+        KJ_REQUIRE(lua_isnumber(state, -1), "non-number value");
+        capnp::DynamicValue::Reader val(lua_tonumber(state, -1));
+        builder.set(field, val);
+      }
+      break;
+    case capnp::schema::Type::TEXT:
+      {
+        KJ_REQUIRE(lua_isstring(state, -1), "non-string value");
+        capnp::DynamicValue::Reader val(luaStringPtr(state, -1));
+        builder.set(field, val);
+      }
+      break;
+    case capnp::schema::Type::DATA:
+      {
+        KJ_REQUIRE(lua_isstring(state, -1), "non-string value");
+        capnp::DynamicValue::Reader val(luaBytePtr(state, -1));
+        builder.set(field, val);
+      }
+      break;
+    case capnp::schema::Type::LIST:
+      {
+        KJ_REQUIRE(lua_istable(state, -1), "non-table value");
+        lua_len(state, -1);
+        lua_Integer n = lua_tointeger(state, -1);
+        lua_pop(state, 1);
+        auto sub = builder.init(field, n).as<capnp::DynamicList>();
+        if (n > 0) {
+          copyList(state, sub);
+        }
+      }
+      break;
+    case capnp::schema::Type::ENUM:
+      {
+        KJ_REQUIRE(lua_isstring(state, -1), "non-string value");
+        auto sval = luaStringPtr(state, -1);
+        auto schema = field.getType().asEnum();
+        auto e = KJ_REQUIRE_NONNULL(schema.findEnumerantByName(sval), "could not find enum value", sval);
+        capnp::DynamicValue::Reader val(e);
+        builder.set(field, val);
+      }
+      break;
+    case capnp::schema::Type::STRUCT:
+      {
+        KJ_REQUIRE(lua_istable(state, -1), "non-table value");
+        auto sub = builder.init(field).as<capnp::DynamicStruct>();
+        copyStruct(state, sub);
+      }
+      break;
+    default:
+      KJ_FAIL_REQUIRE("can't map field type to Lua", field.getType().which());
     }
 
     lua_pop(state, 1);  // pop value, now key is on top.
@@ -129,17 +165,27 @@ void copyStruct(lua_State* state, capnp::DynamicStruct::Builder builder) {
 }
 
 void copyList(lua_State* state, capnp::DynamicList::Builder builder) {
-  if (!lua_checkstack(state, 2)) {
-    luaL_error(state, "copyList: recursion depth exceeded");
-    return;
-  }
+  KJ_ASSERT(lua_checkstack(state, 2), "recursion depth exceeded");
   switch (builder.getSchema().whichElementType()) {
+  case capnp::schema::Type::VOID:
+    // Do nothing.
+    break;
+  case capnp::schema::Type::BOOL:
+    for (lua_Integer i = 0; i < builder.size(); i++) {
+      KJ_CONTEXT("List(Bool)", i);
+      int ty = lua_geti(state, -1, i + 1);
+      KJ_REQUIRE(ty == LUA_TBOOLEAN, "non-boolean element");
+      capnp::DynamicValue::Reader val(static_cast<bool>(lua_toboolean(state, -1)));
+      builder.set(i, val);
+      lua_pop(state, 1);
+    }
+    break;
+  // TODO(#6): rest of list types
   case capnp::schema::Type::UINT64:
     for (lua_Integer i = 0; i < builder.size(); i++) {
-      if (lua_geti(state, -1, i + 1) != LUA_TNUMBER) {
-        luaL_error(state, "copyList: found non-number in List(UInt64)");
-        return;
-      }
+      KJ_CONTEXT("List(UInt64)", i);
+      int ty = lua_geti(state, -1, i + 1);
+      KJ_REQUIRE(ty == LUA_TNUMBER, "non-number element");
       capnp::DynamicValue::Reader val(static_cast<uint64_t>(lua_tointeger(state, -1)));
       builder.set(i, val);
       lua_pop(state, 1);
@@ -147,28 +193,28 @@ void copyList(lua_State* state, capnp::DynamicList::Builder builder) {
     break;
   case capnp::schema::Type::TEXT:
     for (lua_Integer i = 0; i < builder.size(); i++) {
-      if (lua_geti(state, -1, i + 1) != LUA_TSTRING) {
-        luaL_error(state, "copyList: found non-string in List(Text)");
-        return;
-      }
-      capnp::DynamicValue::Reader val(lua_tostring(state, -1));
+      KJ_CONTEXT("List(Text)", i);
+      int ty = lua_geti(state, -1, i + 1);
+      KJ_REQUIRE(ty == LUA_TSTRING, "non-string element");
+      capnp::DynamicValue::Reader val(luaStringPtr(state, -1));
       builder.set(i, val);
       lua_pop(state, 1);
     }
     break;
   case capnp::schema::Type::STRUCT:
-    for (lua_Integer i = 0; i < builder.size(); i++) {
-      if (lua_geti(state, -1, i) != LUA_TTABLE) {
-        luaL_error(state, "copyList: found non-table in List(Text)");
-        return;
+    {
+      auto structName = builder.getSchema().getStructElementType().getShortDisplayName();
+      for (lua_Integer i = 0; i < builder.size(); i++) {
+        KJ_CONTEXT("List(Struct)", i, structName);
+        int ty = lua_geti(state, -1, i + 1);
+        KJ_REQUIRE(ty == LUA_TTABLE, "non-table element");
+        copyStruct(state, builder[i].as<capnp::DynamicStruct>());
+        lua_pop(state, 1);
       }
-      copyStruct(state, builder[i].as<capnp::DynamicStruct>());
-      lua_pop(state, 1);
     }
     break;
   default:
-    luaL_error(state, "copyList: can't map type %d to Lua", builder.getSchema().whichElementType());
-    return;
+    KJ_FAIL_REQUIRE("can't map type to Lua", builder.getSchema().whichElementType());
   }
 }
 

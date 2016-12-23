@@ -19,6 +19,7 @@
 #include <unistd.h>
 
 #include "kj/array.h"
+#include "kj/exception.h"
 #include "kj/io.h"
 #include "kj/string.h"
 #include "capnp/dynamic.h"
@@ -42,6 +43,14 @@ const kj::StringPtr luaStringPtr(lua_State* state, int index);
 // the stack while the return value is live.
 
 int luaLoad(lua_State* state, kj::StringPtr name, kj::InputStream& stream);
+
+inline void pushLua(lua_State* state, const kj::StringPtr s) {
+  // Push a string onto the Lua stack.
+  lua_pushlstring(state, s.cStr(), s.size());
+}
+
+void pushLua(lua_State* state, kj::Exception& e);
+// Push a description of e onto the Lua stack.
 
 void copyStruct(lua_State* state, capnp::DynamicStruct::Builder builder);
 // Converts the Lua value at the top of the stack into a Cap'n Proto struct.

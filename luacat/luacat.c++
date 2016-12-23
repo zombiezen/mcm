@@ -14,6 +14,7 @@
 
 #include <unistd.h>
 
+#include "kj/exception.h"
 #include "kj/main.h"
 #include "kj/io.h"
 #include "kj/string.h"
@@ -35,11 +36,16 @@ public:
     }
     kj::FdOutputStream out(STDOUT_FILENO);
     kj::FdOutputStream err(STDERR_FILENO);
-    Lua l(err);
-    l.exec(src);
-    capnp::MallocMessageBuilder message;
-    l.finish(message);
-    capnp::writeMessage(out, message);
+    auto maybeExc = kj::runCatchingExceptions([&]() {
+      Lua l(err);
+      l.exec(src);
+      capnp::MallocMessageBuilder message;
+      l.finish(message);
+      capnp::writeMessage(out, message);
+    });
+    KJ_IF_MAYBE(e, maybeExc) {
+      context.error(e->getDescription());
+    }
 
     return true;
   }

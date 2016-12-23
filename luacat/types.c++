@@ -55,6 +55,13 @@ int luaLoad(lua_State* state, kj::StringPtr name, kj::InputStream& stream) {
   return lua_load(state, readStream, &reader, name.cStr(), NULL);
 }
 
+void pushLua(lua_State* state, kj::Exception& e) {
+  luaL_where(state, 1);
+  // TODO(soon): custom formatting with context
+  pushLua(state, e.getDescription());
+  lua_concat(state, 2);
+}
+
 void copyStruct(lua_State* state, capnp::DynamicStruct::Builder builder) {
   KJ_ASSERT(lua_checkstack(state, 2), "recursion depth exceeded");
   auto structName = builder.getSchema().getShortDisplayName();

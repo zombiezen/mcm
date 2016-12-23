@@ -178,8 +178,8 @@ namespace {
           copyStruct(state, f);
         });
         KJ_IF_MAYBE(e, maybeExc) {
-          luaL_error(state, "%s", e->getDescription().cStr());
-          return 0;  // unreachable
+          pushLua(state, *e);
+          return lua_error(state);
         }
       }
       break;
@@ -190,8 +190,8 @@ namespace {
           copyStruct(state, e);
         });
         KJ_IF_MAYBE(e, maybeExc) {
-          luaL_error(state, "%s", e->getDescription().cStr());
-          return 0;  // unreachable
+          pushLua(state, *e);
+          return lua_error(state);
         }
       }
       break;
@@ -283,18 +283,19 @@ Lua::Lua(kj::OutputStream& ls) : logStream(ls) {
 }
 
 void Lua::exec(kj::StringPtr fname) {
+  auto chunkName = kj::str("@", fname);
   int fd = open(fname.cStr(), O_RDONLY, 0);
   KJ_ASSERT(fd != -1);
   kj::AutoCloseFd afd(fd);
   kj::FdInputStream stream(kj::mv(afd));
-  exec(fname, stream);
+  exec(chunkName, stream);
 }
 
 void Lua::exec(kj::StringPtr name, kj::InputStream& stream) {
   if (luaLoad(state, name, stream) || lua_pcall(state, 0, 0, 0)) {
     auto errMsg = kj::heapString(luaStringPtr(state, -1));
     lua_pop(state, 1);
-    KJ_FAIL_ASSERT(errMsg);
+    throw kj::Exception(kj::Exception::Type::FAILED, __FILE__, __LINE__, kj::mv(errMsg));
   }
 }
 

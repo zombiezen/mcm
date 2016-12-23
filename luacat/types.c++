@@ -141,9 +141,7 @@ void copyStruct(lua_State* state, capnp::DynamicStruct::Builder builder) {
         lua_Integer n = lua_tointeger(state, -1);
         lua_pop(state, 1);
         auto sub = builder.init(field, n).as<capnp::DynamicList>();
-        if (n > 0) {
-          copyList(state, sub);
-        }
+        copyList(state, sub);
       }
       break;
     case capnp::schema::Type::ENUM:
@@ -172,6 +170,9 @@ void copyStruct(lua_State* state, capnp::DynamicStruct::Builder builder) {
 }
 
 void copyList(lua_State* state, capnp::DynamicList::Builder builder) {
+  if (builder.size() == 0) {
+    return;
+  }
   KJ_ASSERT(lua_checkstack(state, 2), "recursion depth exceeded");
   switch (builder.getSchema().whichElementType()) {
   case capnp::schema::Type::VOID:
@@ -187,13 +188,43 @@ void copyList(lua_State* state, capnp::DynamicList::Builder builder) {
       lua_pop(state, 1);
     }
     break;
-  // TODO(#6): rest of list types
-  case capnp::schema::Type::UINT64:
+  case capnp::schema::Type::INT8:
+  case capnp::schema::Type::INT16:
+  case capnp::schema::Type::INT32:
+  case capnp::schema::Type::INT64:
     for (lua_Integer i = 0; i < builder.size(); i++) {
-      KJ_CONTEXT("List(UInt64)", i);
+      KJ_CONTEXT("List(Int)", i);
       int ty = lua_geti(state, -1, i + 1);
       KJ_REQUIRE(ty == LUA_TNUMBER, "non-number element");
-      capnp::DynamicValue::Reader val(static_cast<uint64_t>(lua_tointeger(state, -1)));
+      int isint = 0;
+      capnp::DynamicValue::Reader val(static_cast<int64_t>(lua_tointegerx(state, -1, &isint)));
+      KJ_REQUIRE(isint, "non-integer value");
+      builder.set(i, val);
+      lua_pop(state, 1);
+    }
+    break;
+  case capnp::schema::Type::UINT8:
+  case capnp::schema::Type::UINT16:
+  case capnp::schema::Type::UINT32:
+  case capnp::schema::Type::UINT64:
+    for (lua_Integer i = 0; i < builder.size(); i++) {
+      KJ_CONTEXT("List(UInt)", i);
+      int ty = lua_geti(state, -1, i + 1);
+      KJ_REQUIRE(ty == LUA_TNUMBER, "non-number element");
+      int isint = 0;
+      capnp::DynamicValue::Reader val(static_cast<uint64_t>(lua_tointegerx(state, -1, &isint)));
+      KJ_REQUIRE(isint, "non-integer value");
+      builder.set(i, val);
+      lua_pop(state, 1);
+    }
+    break;
+  case capnp::schema::Type::FLOAT32:
+  case capnp::schema::Type::FLOAT64:
+    for (lua_Integer i = 0; i < builder.size(); i++) {
+      KJ_CONTEXT("List(Float)", i);
+      int ty = lua_geti(state, -1, i + 1);
+      KJ_REQUIRE(ty == LUA_TNUMBER, "non-number element");
+      capnp::DynamicValue::Reader val(lua_tonumber(state, -1));
       builder.set(i, val);
       lua_pop(state, 1);
     }
@@ -208,11 +239,50 @@ void copyList(lua_State* state, capnp::DynamicList::Builder builder) {
       lua_pop(state, 1);
     }
     break;
+  case capnp::schema::Type::DATA:
+    for (lua_Integer i = 0; i < builder.size(); i++) {
+      KJ_CONTEXT("List(Data)", i);
+      int ty = lua_geti(state, -1, i + 1);
+      KJ_REQUIRE(ty == LUA_TSTRING, "non-string element");
+      capnp::DynamicValue::Reader val(luaBytePtr(state, -1));
+      builder.set(i, val);
+      lua_pop(state, 1);
+    }
+    break;
+  case capnp::schema::Type::LIST:
+    for (lua_Integer i = 0; i < builder.size(); i++) {
+      KJ_CONTEXT("List(List(...))", i);
+      int ty = lua_geti(state, -1, i + 1);
+      KJ_REQUIRE(ty == LUA_TTABLE, "non-table element");
+      lua_len(state, -1);
+      lua_Integer n = lua_tointeger(state, -1);
+      lua_pop(state, 1);
+      auto sub = builder.init(i, n).as<capnp::DynamicList>();
+      copyList(state, sub);
+      lua_pop(state, 1);
+    }
+    break;
+  case capnp::schema::Type::ENUM:
+    {
+      auto schema = builder.getSchema().getEnumElementType();
+      auto enumName = schema.getShortDisplayName();
+      for (lua_Integer i = 0; i < builder.size(); i++) {
+        KJ_CONTEXT("List(enum)", i, enumName);
+        int ty = lua_geti(state, -1, i + 1);
+        KJ_REQUIRE(ty == LUA_TSTRING, "non-string element");
+        auto sval = luaStringPtr(state, -1);
+        auto e = KJ_REQUIRE_NONNULL(schema.findEnumerantByName(sval), "could not find enum value", sval);
+        capnp::DynamicValue::Reader val(e);
+        builder.set(i, val);
+        lua_pop(state, 1);
+      }
+    }
+    break;
   case capnp::schema::Type::STRUCT:
     {
       auto structName = builder.getSchema().getStructElementType().getShortDisplayName();
       for (lua_Integer i = 0; i < builder.size(); i++) {
-        KJ_CONTEXT("List(Struct)", i, structName);
+        KJ_CONTEXT("List(struct)", i, structName);
         int ty = lua_geti(state, -1, i + 1);
         KJ_REQUIRE(ty == LUA_TTABLE, "non-table element");
         copyStruct(state, builder[i].as<capnp::DynamicStruct>());

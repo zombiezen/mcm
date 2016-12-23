@@ -105,7 +105,7 @@ void evalString(lua_State* state, kj::StringPtr s) {
 
 TEST(CopyStructTest, VoidField) {
   OwnState state = newLuaState();
-  evalString(state, "{void = true}");
+  ASSERT_NO_FATAL_FAILURE(evalString(state, "{void = true}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
 
@@ -116,7 +116,7 @@ TEST(CopyStructTest, VoidField) {
 
 TEST(CopyStructTest, BoolFieldTrue) {
   OwnState state = newLuaState();
-  evalString(state, "{bool = true}");
+  ASSERT_NO_FATAL_FAILURE(evalString(state, "{bool = true}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
 
@@ -128,7 +128,7 @@ TEST(CopyStructTest, BoolFieldTrue) {
 
 TEST(CopyStructTest, BoolFieldFalse) {
   OwnState state = newLuaState();
-  evalString(state, "{bool = false}");
+  ASSERT_NO_FATAL_FAILURE(evalString(state, "{bool = false}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
 
@@ -140,7 +140,7 @@ TEST(CopyStructTest, BoolFieldFalse) {
 
 TEST(CopyStructTest, EnumField) {
   OwnState state = newLuaState();
-  evalString(state, "{enum = \"that\"}");
+  ASSERT_NO_FATAL_FAILURE(evalString(state, "{enum = \"that\"}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
 
@@ -152,7 +152,7 @@ TEST(CopyStructTest, EnumField) {
 
 TEST(CopyStructTest, Int64Field) {
   OwnState state = newLuaState();
-  evalString(state, "{int64 = -0x7fffffffffffffff}");
+  ASSERT_NO_FATAL_FAILURE(evalString(state, "{int64 = -0x7fffffffffffffff}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
 
@@ -164,7 +164,7 @@ TEST(CopyStructTest, Int64Field) {
 
 TEST(CopyStructTest, UInt64Field) {
   OwnState state = newLuaState();
-  evalString(state, "{uint64 = 0x8000000000000000}");
+  ASSERT_NO_FATAL_FAILURE(evalString(state, "{uint64 = 0x8000000000000000}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
 
@@ -176,7 +176,7 @@ TEST(CopyStructTest, UInt64Field) {
 
 TEST(CopyStructTest, TextField) {
   OwnState state = newLuaState();
-  evalString(state, "{text = \"Hello, World!\"}");
+  ASSERT_NO_FATAL_FAILURE(evalString(state, "{text = \"Hello, World!\"}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
 
@@ -188,7 +188,7 @@ TEST(CopyStructTest, TextField) {
 
 TEST(CopyStructTest, DataField) {
   OwnState state = newLuaState();
-  evalString(state, "{data = \"Hello, World!\"}");
+  ASSERT_NO_FATAL_FAILURE(evalString(state, "{data = \"Hello, World!\"}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
 
@@ -200,9 +200,9 @@ TEST(CopyStructTest, DataField) {
       kj::ArrayPtr<const kj::byte>(root.getData()));
 }
 
-TEST(CopyStructTest, BoolList) {
+TEST(CopyListTest, BoolList) {
   OwnState state = newLuaState();
-  evalString(state, "{boolList = {true, false, true}}");
+  ASSERT_NO_FATAL_FAILURE(evalString(state, "{boolList = {true, false, true}}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
 
@@ -215,9 +215,9 @@ TEST(CopyStructTest, BoolList) {
   EXPECT_EQ(true, root.getBoolList()[2]);
 }
 
-TEST(CopyStructTest, StructList) {
+TEST(CopyListTest, StructList) {
   OwnState state = newLuaState();
-  evalString(state, "{structList = {{bool = true}, {int64 = 42}}}");
+  ASSERT_NO_FATAL_FAILURE(evalString(state, "{structList = {{bool = true}, {int64 = 42}}}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
 
@@ -229,4 +229,36 @@ TEST(CopyStructTest, StructList) {
   ASSERT_EQ(true, root.getStructList()[0].getBool());
   ASSERT_EQ(mcm::luacat::GenericValue::INT64, root.getStructList()[1].which());
   ASSERT_EQ(42, root.getStructList()[1].getInt64());
+}
+
+TEST(CopyListTest, ListList) {
+  OwnState state = newLuaState();
+  ASSERT_NO_FATAL_FAILURE(evalString(state, "{listList = {{}, {-1, 42}, {314}}}"));
+  capnp::MallocMessageBuilder message;
+  auto root = message.initRoot<mcm::luacat::GenericValue>();
+
+  copyStruct(state, root);
+
+  ASSERT_EQ(mcm::luacat::GenericValue::LIST_LIST, root.which());
+  ASSERT_EQ(3, root.getListList().size());
+  EXPECT_EQ(0, root.getListList()[0].size());
+  ASSERT_EQ(2, root.getListList()[1].size());
+  EXPECT_EQ(-1, root.getListList()[1][0]);
+  EXPECT_EQ(42, root.getListList()[1][1]);
+  ASSERT_EQ(1, root.getListList()[2].size());
+  EXPECT_EQ(314, root.getListList()[2][0]);
+}
+
+TEST(CopyListTest, EnumList) {
+  OwnState state = newLuaState();
+  ASSERT_NO_FATAL_FAILURE(evalString(state, "{enumList = {\"that\", \"this\"}}"));
+  capnp::MallocMessageBuilder message;
+  auto root = message.initRoot<mcm::luacat::GenericValue>();
+
+  copyStruct(state, root);
+
+  ASSERT_EQ(mcm::luacat::GenericValue::ENUM_LIST, root.which());
+  ASSERT_EQ(2, root.getEnumList().size());
+  EXPECT_EQ(mcm::luacat::Subject::THAT, root.getEnumList()[0]);
+  EXPECT_EQ(mcm::luacat::Subject::THIS, root.getEnumList()[1]);
 }

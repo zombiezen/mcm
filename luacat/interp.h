@@ -33,6 +33,23 @@ namespace mcm {
 
 namespace luacat {
 
+namespace _ {
+  class LuaInternal {
+  public:
+    explicit LuaInternal(kj::OutputStream& ls);
+    KJ_DISALLOW_COPY(LuaInternal);
+
+    Resource::Builder newResource();
+
+    inline kj::OutputStream& getLog() { return logStream; }
+    inline kj::ArrayPtr<capnp::Orphan<Resource>> getResources() { return resources.asPtr(); }
+  private:
+    capnp::MallocMessageBuilder scratch;
+    kj::Vector<capnp::Orphan<Resource>> resources;
+    kj::OutputStream& logStream;
+  };
+}  // namespace _
+
 class Lua {
   // The Lua interpreter.
   // Typical usage is one or more calls to exec followed by a call to finish.
@@ -41,16 +58,11 @@ public:
   explicit Lua(kj::OutputStream& ls);
   KJ_DISALLOW_COPY(Lua);
 
-  inline kj::OutputStream& getLog() { return logStream; }
-
   void exec(kj::StringPtr fname);
   // Run the Lua file at the given path.
 
   void exec(kj::StringPtr name, kj::InputStream& stream);
   // Run the Lua file from the given stream.
-
-  Resource::Builder newResource();
-  // (Mostly internal.) Add a new resource to the resulting catalog.
 
   void finish(capnp::MessageBuilder& message);
   // Build the catalog message.
@@ -59,9 +71,7 @@ public:
 
 private:
   lua_State* state;
-  capnp::MallocMessageBuilder scratch;
-  kj::Vector<capnp::Orphan<Resource>> resources;
-  kj::OutputStream& logStream;
+  _::LuaInternal internal;
 };
 
 }  // namespace luacat

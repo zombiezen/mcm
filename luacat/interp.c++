@@ -41,10 +41,10 @@ namespace {
   const uint64_t fileResId = 0x8dc4ac52b2962163;
   const uint64_t execResId = 0x984c97311006f1ca;
 
-  Lua& getLuaRef(lua_State* state) {
+  _::LuaInternal& getLuaInternalRef(lua_State* state) {
     int ty = lua_getfield(state, LUA_REGISTRYINDEX, luaRefRegistryKey);
     KJ_ASSERT(ty == LUA_TLIGHTUSERDATA);
-    auto ptr = reinterpret_cast<Lua*>(lua_touserdata(state, -1));
+    auto ptr = reinterpret_cast<_::LuaInternal*>(lua_touserdata(state, -1));
     lua_pop(state, 1);
     return *ptr;
   }
@@ -136,7 +136,7 @@ namespace {
     }
     lua_pop(state, 1);
 
-    auto& l = getLuaRef(state);
+    auto& l = getLuaInternalRef(state);
     auto res = l.newResource();
     KJ_IF_MAYBE(id, getId(state, 1)) {
       res.setId(id->getValue());
@@ -238,7 +238,7 @@ namespace {
     // We could customize this in vendored copy, but this keeps the
     // application/vendored code separation clean.
 
-    auto& stream = getLuaRef(state).getLog();
+    auto& stream = getLuaInternalRef(state).getLog();
     int n = lua_gettop(state);  // number of arguments
     int i;
     lua_getglobal(state, "tostring");
@@ -263,11 +263,23 @@ namespace {
   }
 }  // namespace
 
-Lua::Lua(kj::OutputStream& ls) : logStream(ls) {
+namespace _ {
+  LuaInternal::LuaInternal(kj::OutputStream& ls) : logStream(ls) {
+  }
+
+  Resource::Builder LuaInternal::newResource() {
+    auto orphan = scratch.getOrphanage().newOrphan<Resource>();
+    auto builder = orphan.get();
+    resources.add(kj::mv(orphan));
+    return builder;
+  }
+}  // namespace _
+
+Lua::Lua(kj::OutputStream& ls) : internal(ls) {
   // TODO(someday): use lua_newstate and set atpanic
   state = luaL_newstate();
   KJ_ASSERT_NONNULL(state);
-  lua_pushlightuserdata(state, this);
+  lua_pushlightuserdata(state, &internal);
   lua_setfield(state, LUA_REGISTRYINDEX, luaRefRegistryKey);
   const luaL_Reg *lib;
   for (lib = loadedlibs; lib->func; lib++) {
@@ -299,15 +311,9 @@ void Lua::exec(kj::StringPtr name, kj::InputStream& stream) {
   }
 }
 
-Resource::Builder Lua::newResource() {
-  auto orphan = scratch.getOrphanage().newOrphan<Resource>();
-  auto builder = orphan.get();
-  resources.add(kj::mv(orphan));
-  return builder;
-}
-
 void Lua::finish(capnp::MessageBuilder& message) {
   auto catalog = message.initRoot<Catalog>();
+  auto resources = internal.getResources();
   auto rlist = catalog.initResources(resources.size());
   // TODO(soon): sort
   for (size_t i = 0; i < resources.size(); i++) {

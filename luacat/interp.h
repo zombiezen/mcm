@@ -58,6 +58,9 @@ public:
   explicit Lua(kj::OutputStream& ls);
   KJ_DISALLOW_COPY(Lua);
 
+  void setPath(kj::StringPtr path);
+  // Set package.path to the given value.
+
   void exec(kj::StringPtr fname);
   // Run the Lua file at the given path.
 

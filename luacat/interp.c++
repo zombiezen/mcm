@@ -294,6 +294,13 @@ Lua::Lua(kj::OutputStream& ls) : internal(ls) {
   lua_pop(state, 1);
 }
 
+void Lua::setPath(kj::StringPtr path) {
+  lua_getglobal(state, "package");
+  pushLua(state, path);
+  lua_setfield(state, -2, "path");
+  lua_pop(state, 1);
+}
+
 void Lua::exec(kj::StringPtr fname) {
   auto chunkName = kj::str("@", fname);
   int fd = open(fname.cStr(), O_RDONLY, 0);

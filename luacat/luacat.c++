@@ -26,6 +26,21 @@ namespace mcm {
 
 namespace luacat {
 
+namespace {
+#if _WIN32
+  const char pathSep = '\\';
+#else
+  const char pathSep = '/';
+#endif
+  kj::String dirName(kj::StringPtr path) {
+    KJ_IF_MAYBE(slashPos, path.findLast(pathSep)) {
+      return kj::heapString(path.slice(0, *slashPos));
+    } else {
+      return kj::heapString(".");
+    }
+  }
+}
+
 class Main {
 public:
   Main(kj::ProcessContext& context): context(context) {}
@@ -36,8 +51,11 @@ public:
     }
     kj::FdOutputStream out(STDOUT_FILENO);
     kj::FdOutputStream err(STDERR_FILENO);
+    auto srcDir = dirName(src);
+    auto luaPath = kj::str(srcDir, pathSep, "?.lua;", srcDir, pathSep, "?", pathSep, "init.lua");
     auto maybeExc = kj::runCatchingExceptions([&]() {
       Lua l(err);
+      l.setPath(luaPath);
       l.exec(src);
       capnp::MallocMessageBuilder message;
       l.finish(message);

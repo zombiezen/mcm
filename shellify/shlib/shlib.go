@@ -110,7 +110,7 @@ func (g *gen) resourceFunc(r catalog.Resource) error {
 	switch r.Which() {
 	case catalog.Resource_Which_noop:
 		if deps, _ := r.Dependencies(); deps.Len() > 0 {
-			g.p(depsChangedCondition(deps), script("&&"), assignment{statVar, 1}, script("||"), assignment{statVar, 0})
+			g.p(script("[["), depsChangedCondition(deps), script("]] &&"), assignment{statVar, 1}, script("||"), assignment{statVar, 0})
 		} else {
 			g.p(assignment{statVar, 0})
 		}

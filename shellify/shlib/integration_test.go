@@ -40,6 +40,7 @@ func TestIntegration(t *testing.T) {
 	t.Logf("using %s for bash", bashPath)
 	t.Run("Empty", func(t *testing.T) { emptyTest(t, bashPath) })
 	t.Run("File", func(t *testing.T) { fileTest(t, bashPath) })
+	t.Run("Noop", func(t *testing.T) { noopTest(t, bashPath) })
 	t.Run("NoContentFile", func(t *testing.T) { noContentFileTest(t, bashPath) })
 	t.Run("Link", func(t *testing.T) { linkTest(t, bashPath) })
 	t.Run("Relink", func(t *testing.T) { relinkTest(t, bashPath) })
@@ -92,6 +93,125 @@ func fileTest(t *testing.T, bashPath string) {
 	if !bytes.Equal(gotContent, []byte(fileContent)) {
 		t.Errorf("content of %s = %q; want %q", fpath, gotContent, fileContent)
 	}
+}
+
+func noopTest(t *testing.T, bashPath string) {
+	t.Run("NoDeps", func(t *testing.T) {
+		c, err := (&catpogs.Catalog{
+			Resources: []*catpogs.Resource{
+				{
+					ID:      42,
+					Comment: "noop",
+					Which:   catalog.Resource_Which_noop,
+				},
+			},
+		}).ToCapnp()
+		if err != nil {
+			t.Fatalf("build catalog: %v", err)
+		}
+		_, err = runCatalog("noopNoDeps", bashPath, t, c)
+		if err != nil {
+			t.Errorf("run catalog: %v", err)
+		}
+	})
+	t.Run("WithDeps", func(t *testing.T) {
+		root, deleteTempDir, err := makeTempDir(t)
+		if err != nil {
+			t.Fatalf("temp directory: %v", err)
+		}
+		defer deleteTempDir()
+		fpath1 := filepath.Join(root, "foo1.txt")
+		fpath2 := filepath.Join(root, "foo2.txt")
+		c, err := (&catpogs.Catalog{
+			Resources: []*catpogs.Resource{
+				{
+					ID:      101,
+					Comment: "file1",
+					Which:   catalog.Resource_Which_file,
+					File:    catpogs.PlainFile(fpath1, []byte("Hello!\n")),
+				},
+				{
+					ID:      102,
+					Comment: "file2",
+					Which:   catalog.Resource_Which_file,
+					File:    catpogs.PlainFile(fpath2, []byte("Hello!\n")),
+				},
+				{
+					ID:      42,
+					Comment: "noop",
+					Deps:    []uint64{101, 102},
+					Which:   catalog.Resource_Which_noop,
+				},
+			},
+		}).ToCapnp()
+		if err != nil {
+			t.Fatalf("build catalog: %v", err)
+		}
+		_, err = runCatalog("noopWithDeps", bashPath, t, c)
+		if err != nil {
+			t.Errorf("run catalog: %v", err)
+		}
+	})
+	t.Run("WithDepsChange", func(t *testing.T) {
+		root, deleteTempDir, err := makeTempDir(t)
+		if err != nil {
+			t.Fatalf("temp directory: %v", err)
+		}
+		defer deleteTempDir()
+		fpath1 := filepath.Join(root, "foo1.txt")
+		fpath2 := filepath.Join(root, "foo2.txt")
+		outpath := filepath.Join(root, "canary.txt")
+		c, err := (&catpogs.Catalog{
+			Resources: []*catpogs.Resource{
+				{
+					ID:      101,
+					Comment: "file1",
+					Which:   catalog.Resource_Which_file,
+					File:    catpogs.PlainFile(fpath1, []byte("Hello!\n")),
+				},
+				{
+					ID:      102,
+					Comment: "file2",
+					Which:   catalog.Resource_Which_file,
+					File:    catpogs.PlainFile(fpath2, []byte("Hello!\n")),
+				},
+				{
+					ID:      42,
+					Comment: "noop",
+					Deps:    []uint64{101, 102},
+					Which:   catalog.Resource_Which_noop,
+				},
+				{
+					ID:      200,
+					Comment: "canary",
+					Deps:    []uint64{42},
+					Which:   catalog.Resource_Which_exec,
+					Exec: &catpogs.Exec{
+						Command: &catpogs.Command{
+							Which: catalog.Exec_Command_Which_argv,
+							Argv:  []string{"/usr/bin/touch", outpath},
+						},
+						Condition: catpogs.ExecCondition{
+							Which:         catalog.Exec_condition_Which_ifDepsChanged,
+							IfDepsChanged: []uint64{42},
+						},
+					},
+				},
+			},
+		}).ToCapnp()
+		if err != nil {
+			t.Fatalf("build catalog: %v", err)
+		}
+		_, err = runCatalog("noopWithDepsChange", bashPath, t, c)
+		if err != nil {
+			t.Errorf("run catalog: %v", err)
+		}
+		if _, err := os.Lstat(outpath); os.IsNotExist(err) {
+			t.Errorf("%q does not exist; noop resource did not report changed", outpath)
+		} else if err != nil {
+			t.Errorf("os.Lstat(%q) error: %v", outpath, err)
+		}
+	})
 }
 
 func noContentFileTest(t *testing.T, bashPath string) {

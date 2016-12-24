@@ -30,9 +30,16 @@ import (
 	"github.com/zombiezen/mcm/internal/system"
 )
 
+// DefaultBashPath is the path used if Applier.Bash is empty.
+const DefaultBashPath = "/bin/bash"
+
 type Applier struct {
 	System system.System
 	Log    Logger
+
+	// Bash is the path to the bash executable.
+	// If it's empty, then Apply uses DefaultBashPath.
+	Bash string
 }
 
 type Logger interface {
@@ -388,7 +395,7 @@ func (app *Applier) evalExecCondition(ctx context.Context, cond catalog.Exec_con
 }
 
 func (app *Applier) runCommand(ctx context.Context, c catalog.Exec_Command) error {
-	cmd, err := buildCommand(c)
+	cmd, err := app.buildCommand(c)
 	if err != nil {
 		return err
 	}
@@ -400,7 +407,7 @@ func (app *Applier) runCommand(ctx context.Context, c catalog.Exec_Command) erro
 }
 
 func (app *Applier) runCondition(ctx context.Context, c catalog.Exec_Command) (success bool, err error) {
-	cmd, err := buildCommand(c)
+	cmd, err := app.buildCommand(c)
 	if err != nil {
 		return false, err
 	}
@@ -414,7 +421,7 @@ func (app *Applier) runCondition(ctx context.Context, c catalog.Exec_Command) (s
 	return true, nil
 }
 
-func buildCommand(cmd catalog.Exec_Command) (*system.Cmd, error) {
+func (app *Applier) buildCommand(cmd catalog.Exec_Command) (*system.Cmd, error) {
 	var c *system.Cmd
 	switch cmd.Which() {
 	case catalog.Exec_Command_Which_argv:
@@ -436,6 +443,20 @@ func buildCommand(cmd catalog.Exec_Command) (*system.Cmd, error) {
 		c = &system.Cmd{
 			Path: argv[0],
 			Args: argv,
+		}
+	case catalog.Exec_Command_Which_bash:
+		p := app.Bash
+		if p == "" {
+			p = DefaultBashPath
+		}
+		b, err := cmd.BashBytes()
+		if err != nil {
+			return nil, errorf("read bash: %v", err)
+		}
+		c = &system.Cmd{
+			Path:  p,
+			Args:  []string{p},
+			Stdin: bytes.NewReader(b),
 		}
 	default:
 		return nil, errorf("unsupported command type %v", cmd.Which())

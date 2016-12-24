@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -258,6 +259,71 @@ func TestExec(t *testing.T) {
 
 	if !called {
 		t.Error("program not executed")
+	}
+}
+
+func TestExecBash(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	const scriptOutput = "Hello, World!"
+	const script = "/bin/echo -n '" + scriptOutput + "'\n"
+	cat, err := (&catpogs.Catalog{
+		Resources: []*catpogs.Resource{
+			{
+				ID:      42,
+				Comment: "exec",
+				Which:   catalog.Resource_Which_exec,
+				Exec: &catpogs.Exec{
+					Command: &catpogs.Command{
+						Which: catalog.Exec_Command_Which_bash,
+						Bash:  script,
+					},
+				},
+			},
+		},
+	}).ToCapnp()
+	if err != nil {
+		t.Fatal("catpogs.Catalog.ToCapnp():", err)
+	}
+	binPath := filepath.Join(fakesystem.Root, "xyzzybin")
+	bashPath := filepath.Join(binPath, "bash")
+	sys := new(fakesystem.System)
+	if err := sys.Mkdir(ctx, binPath, 0777); err != nil {
+		t.Fatalf("mkdir %s: %v", binPath, err)
+	}
+	scriptBuf := new(bytes.Buffer)
+	err = sys.Mkprogram(bashPath, func(ctx context.Context, pc *fakesystem.ProgramContext) int {
+		if len(pc.Args) != 1 || pc.Args[0] != bashPath {
+			fmt.Fprintf(pc.Output, "arguments = %v; want [%s]\n", pc.Args, bashPath)
+			return 1
+		}
+		if _, err := io.Copy(scriptBuf, pc.Input); err != nil {
+			fmt.Fprintln(pc.Output, err)
+			return 1
+		}
+		if _, err := io.WriteString(pc.Output, scriptOutput); err != nil {
+			fmt.Fprintln(pc.Output, err)
+			return 1
+		}
+		return 0
+	})
+	if err != nil {
+		t.Fatal("Mkprogram:", err)
+	}
+
+	app := &Applier{
+		System: sys,
+		Log:    testLogger{t: t},
+		Bash:   bashPath,
+	}
+	err = app.Apply(ctx, cat)
+	if err != nil {
+		t.Error("Apply:", err)
+	}
+
+	if got := scriptBuf.String(); got != script {
+		t.Errorf("script = %q; want %q", got, script)
 	}
 }
 

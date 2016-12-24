@@ -17,6 +17,8 @@
 #include "kj/debug.h"
 #include "lua.hpp"
 
+#include "luacat/value.h"
+
 namespace mcm {
 
 namespace luacat {
@@ -103,13 +105,26 @@ void copyStruct(lua_State* state, capnp::DynamicStruct::Builder builder) {
     case capnp::schema::Type::UINT8:
     case capnp::schema::Type::UINT16:
     case capnp::schema::Type::UINT32:
-    case capnp::schema::Type::UINT64:
       {
         KJ_REQUIRE(lua_isnumber(state, -1), "non-number value");
         int isint = 0;
         capnp::DynamicValue::Reader val(static_cast<uint64_t>(lua_tointegerx(state, -1, &isint)));
         KJ_REQUIRE(isint, "non-integer value");
         builder.set(field, val);
+      }
+      break;
+    case capnp::schema::Type::UINT64:
+      {
+        KJ_IF_MAYBE(id, getId(state, -1)) {
+          builder.set(field, id->getValue());
+        } else if (lua_isnumber(state, -1)) {
+          int isint = 0;
+          capnp::DynamicValue::Reader val(static_cast<uint64_t>(lua_tointegerx(state, -1, &isint)));
+          KJ_REQUIRE(isint, "non-integer value");
+          builder.set(field, val);
+        } else {
+          KJ_FAIL_REQUIRE("value is not a number or an Id");
+        }
       }
       break;
     case capnp::schema::Type::FLOAT32:
@@ -206,7 +221,6 @@ void copyList(lua_State* state, capnp::DynamicList::Builder builder) {
   case capnp::schema::Type::UINT8:
   case capnp::schema::Type::UINT16:
   case capnp::schema::Type::UINT32:
-  case capnp::schema::Type::UINT64:
     for (lua_Integer i = 0; i < builder.size(); i++) {
       KJ_CONTEXT("List(UInt)", i);
       int ty = lua_geti(state, -1, i + 1);
@@ -215,6 +229,23 @@ void copyList(lua_State* state, capnp::DynamicList::Builder builder) {
       capnp::DynamicValue::Reader val(static_cast<uint64_t>(lua_tointegerx(state, -1, &isint)));
       KJ_REQUIRE(isint, "non-integer value");
       builder.set(i, val);
+      lua_pop(state, 1);
+    }
+    break;
+  case capnp::schema::Type::UINT64:
+    for (lua_Integer i = 0; i < builder.size(); i++) {
+      KJ_CONTEXT("List(UInt64)", i);
+      int ty = lua_geti(state, -1, i + 1);
+      KJ_IF_MAYBE(id, getId(state, -1)) {
+        builder.set(i, id->getValue());
+      } else if (ty == LUA_TNUMBER) {
+        int isint = 0;
+        capnp::DynamicValue::Reader val(static_cast<uint64_t>(lua_tointegerx(state, -1, &isint)));
+        KJ_REQUIRE(isint, "non-integer value");
+        builder.set(i, val);
+      } else {
+        KJ_FAIL_REQUIRE("element is not a number or an Id");
+      }
       lua_pop(state, 1);
     }
     break;

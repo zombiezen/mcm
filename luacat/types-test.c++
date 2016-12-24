@@ -22,6 +22,7 @@
 #include "lua.hpp"
 
 #include "luacat/testsuite.capnp.h"
+#include "luacat/value.h"
 
 namespace kj {
   void PrintTo(kj::ArrayPtr<const kj::byte> s, ::std::ostream* os) {
@@ -174,6 +175,20 @@ TEST(CopyStructTest, UInt64Field) {
   ASSERT_EQ(0x8000000000000000, root.getUint64());
 }
 
+TEST(CopyStructTest, UInt64FieldWithId) {
+  OwnState state = newLuaState();
+  lua_createtable(state, 0, 1);
+  mcm::luacat::pushId(state, kj::heap<const mcm::luacat::Id>(42, nullptr));
+  lua_setfield(state, -2, "uint64");
+  capnp::MallocMessageBuilder message;
+  auto root = message.initRoot<mcm::luacat::GenericValue>();
+
+  copyStruct(state, root);
+
+  ASSERT_EQ(mcm::luacat::GenericValue::UINT64, root.which());
+  ASSERT_EQ(42, root.getUint64());
+}
+
 TEST(CopyStructTest, TextField) {
   OwnState state = newLuaState();
   ASSERT_NO_FATAL_FAILURE(evalString(state, "{text = \"Hello, World!\"}"));
@@ -261,4 +276,39 @@ TEST(CopyListTest, EnumList) {
   ASSERT_EQ(2, root.getEnumList().size());
   EXPECT_EQ(mcm::luacat::Subject::THAT, root.getEnumList()[0]);
   EXPECT_EQ(mcm::luacat::Subject::THIS, root.getEnumList()[1]);
+}
+
+TEST(CopyListTest, UInt64List) {
+  OwnState state = newLuaState();
+  ASSERT_NO_FATAL_FAILURE(evalString(state, "{uint64List = {42, 0, 0xdeadbeef, 0x8000000000000000}}"));
+  capnp::MallocMessageBuilder message;
+  auto root = message.initRoot<mcm::luacat::GenericValue>();
+
+  copyStruct(state, root);
+
+  ASSERT_EQ(mcm::luacat::GenericValue::UINT64_LIST, root.which());
+  auto list = root.getUint64List();
+  ASSERT_EQ(4, list.size());
+  EXPECT_EQ(42, list[0]);
+  EXPECT_EQ(0, list[1]);
+  EXPECT_EQ(0xdeadbeef, list[2]);
+  EXPECT_EQ(0x8000000000000000, list[3]);
+}
+
+TEST(CopyListTest, UInt64ListWithId) {
+  OwnState state = newLuaState();
+  lua_createtable(state, 0, 1);
+  lua_createtable(state, 1, 0);
+  mcm::luacat::pushId(state, kj::heap<const mcm::luacat::Id>(42, nullptr));
+  lua_seti(state, -2, 1);
+  lua_setfield(state, -2, "uint64List");
+  capnp::MallocMessageBuilder message;
+  auto root = message.initRoot<mcm::luacat::GenericValue>();
+
+  copyStruct(state, root);
+
+  ASSERT_EQ(mcm::luacat::GenericValue::UINT64_LIST, root.which());
+  auto list = root.getUint64List();
+  ASSERT_EQ(1, list.size());
+  EXPECT_EQ(42, list[0]);
 }

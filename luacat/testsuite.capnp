@@ -59,6 +59,7 @@ struct GenericValue {
     boolList @17 :List(Bool);
     listList @18 :List(List(Int16));
     enumList @19 :List(Subject);
+    uint64List @20 :List(UInt64);
 
     enum @15 :Subject;
     struct @16 :GenericValue;

@@ -18,9 +18,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/zombiezen/mcm/internal/system"
@@ -282,6 +284,63 @@ func TestRun(t *testing.T) {
 		})
 		if _, ok := err.(*exec.ExitError); !ok {
 			t.Errorf("sys.Run(...) = _, %v; want os/exec.ExitError", err)
+		}
+	})
+	t.Run("nil stdin", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		sys, err := newSystem(ctx, t, func(ctx context.Context, pc *ProgramContext) int {
+			_, err := io.Copy(pc.Output, pc.Input)
+			if err != nil {
+				return 1
+			}
+			return 0
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Log("sys.Run(...)")
+		out, err := sys.Run(ctx, &system.Cmd{
+			Path:  progPath,
+			Args:  []string{progPath},
+			Env:   []string{},
+			Dir:   Root,
+			Stdin: nil,
+		})
+		if err != nil {
+			t.Errorf("sys.Run(...): %v", err)
+		}
+		if len(out) != 0 {
+			t.Errorf("sys.Run(...) output = %q; want \"\"", out)
+		}
+	})
+	t.Run("stdin", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		sys, err := newSystem(ctx, t, func(ctx context.Context, pc *ProgramContext) int {
+			_, err := io.Copy(pc.Output, pc.Input)
+			if err != nil {
+				return 1
+			}
+			return 0
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Log("sys.Run(...)")
+		const want = "xyzzy"
+		out, err := sys.Run(ctx, &system.Cmd{
+			Path:  progPath,
+			Args:  []string{progPath},
+			Env:   []string{},
+			Dir:   Root,
+			Stdin: strings.NewReader(want),
+		})
+		if err != nil {
+			t.Errorf("sys.Run(...): %v", err)
+		}
+		if !bytes.Equal(out, []byte(want)) {
+			t.Errorf("sys.Run(...) output = %q; want %q", out, want)
 		}
 	})
 }

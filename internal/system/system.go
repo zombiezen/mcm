@@ -73,10 +73,11 @@ type Runner interface {
 // A Cmd describes a process to execute on a system.
 // Its fields behave the same as the corresponding ones in os/exec.Cmd.
 type Cmd struct {
-	Path string
-	Args []string
-	Env  []string
-	Dir  string
+	Path  string
+	Args  []string
+	Env   []string
+	Dir   string
+	Stdin io.Reader
 }
 
 func IsExist(err error) bool    { return os.IsExist(err) }

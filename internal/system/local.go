@@ -63,10 +63,11 @@ func (Local) OpenFile(ctx context.Context, path string) (File, error) {
 // Run runs a process using os/exec and returns the combined stdout and stderr.
 func (Local) Run(ctx context.Context, cmd *Cmd) (output []byte, err error) {
 	ec := &exec.Cmd{
-		Path: cmd.Path,
-		Args: cmd.Args,
-		Env:  cmd.Env,
-		Dir:  cmd.Dir,
+		Path:  cmd.Path,
+		Args:  cmd.Args,
+		Env:   cmd.Env,
+		Dir:   cmd.Dir,
+		Stdin: cmd.Stdin,
 	}
 	return ec.CombinedOutput()
 }

@@ -51,6 +51,7 @@ type ProgramContext struct {
 	Args   []string
 	Env    []string
 	Dir    string
+	Input  io.Reader
 	Output io.Writer
 }
 
@@ -365,11 +366,16 @@ func (sys *System) Run(ctx context.Context, cmd *system.Cmd) (output []byte, err
 	if program == nil {
 		return nil, wrap(errors.New("fake system: not a program"))
 	}
+	in := cmd.Stdin
+	if in == nil {
+		in = bytes.NewReader(nil)
+	}
 	out := new(bytes.Buffer)
 	exit := program(ctx, &ProgramContext{
 		Args:   cmd.Args,
 		Env:    cmd.Env,
 		Dir:    cmd.Dir,
+		Input:  in,
 		Output: out,
 	})
 	if exit != 0 {

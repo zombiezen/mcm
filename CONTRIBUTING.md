@@ -22,4 +22,10 @@ All submissions, including submissions by project members, require review. We
 use GitHub pull requests for this purpose. Consult [GitHub Help] for more
 information on using pull requests.
 
+As a policy, mcm should always build cleanly and pass tests on every commit.  We
+run a [Travis build] that checks before and after merges to enforce this policy.
+However, as a courtesy to other contributors, please run `./bazel test //...`
+before sending a pull request (this is what the Travis build does).
+
 [GitHub Help]: https://help.github.com/articles/about-pull-requests/
+[Travis build]: https://travis-ci.org/zombiezen/mcm

@@ -138,7 +138,7 @@ func depsPrecondition(deps capnp.UInt64List) script {
 		if i > 0 {
 			buf = append(buf, " && "...)
 		}
-		buf = append(buf, "status"...)
+		buf = append(buf, "$status"...)
 		buf = strconv.AppendUint(buf, deps.At(i), 10)
 		buf = append(buf, " -ge 0"...)
 	}
@@ -151,7 +151,7 @@ func depsChangedCondition(deps capnp.UInt64List) script {
 		if i > 0 {
 			buf = append(buf, " || "...)
 		}
-		buf = append(buf, "status"...)
+		buf = append(buf, "$status"...)
 		buf = strconv.AppendUint(buf, deps.At(i), 10)
 		buf = append(buf, " -gt 0"...)
 	}
@@ -164,7 +164,7 @@ func (g *gen) exitStatusCheck(res catalog.Resource_List) {
 		if i > 0 {
 			buf = append(buf, " || "...)
 		}
-		buf = append(buf, "status"...)
+		buf = append(buf, "$status"...)
 		buf = strconv.AppendUint(buf, res.At(i).ID(), 10)
 		buf = append(buf, " -lt 0"...)
 	}

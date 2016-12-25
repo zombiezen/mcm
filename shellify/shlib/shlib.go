@@ -374,21 +374,21 @@ func (g *gen) execCondition(id uint64, cond catalog.Exec_condition) error {
 		if err := g.command("conditionExit", c); err != nil {
 			return err
 		}
-		g.p(script("if [[ $conditionExit -eq 0 ]]; then"))
+		g.p(script("if [[ $conditionExit -ne 0 ]]; then"))
 		g.in()
 		g.returnStatus(id, 0)
 		g.out()
 		g.p(script("fi"))
 	case catalog.Exec_condition_Which_unless:
 		g.p(script("local conditionExit"))
-		c, err := cond.OnlyIf()
+		c, err := cond.Unless()
 		if err != nil {
 			return fmt.Errorf("read from catalog: %v", err)
 		}
 		if err := g.command("conditionExit", c); err != nil {
 			return err
 		}
-		g.p(script("if [[ $conditionExit -ne 0 ]]; then"))
+		g.p(script("if [[ $conditionExit -eq 0 ]]; then"))
 		g.in()
 		g.returnStatus(id, 0)
 		g.out()

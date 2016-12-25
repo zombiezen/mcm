@@ -47,6 +47,8 @@ func TestIntegration(t *testing.T) {
 	t.Run("SkipFail", func(t *testing.T) { skipFailTest(t, bashPath) })
 	t.Run("Exec", func(t *testing.T) { execTest(t, bashPath) })
 	t.Run("ExecBash", func(t *testing.T) { execBashTest(t, bashPath) })
+	t.Run("ExecOnlyIf", func(t *testing.T) { execOnlyIfTest(t, bashPath) })
+	t.Run("ExecUnless", func(t *testing.T) { execUnlessTest(t, bashPath) })
 	t.Run("ExecIfDepsChanged", func(t *testing.T) { execIfDepsChangedTest(t, bashPath) })
 }
 
@@ -491,6 +493,94 @@ func execBashTest(t *testing.T, bashPath string) {
 	if !bytes.Equal(out, []byte(msg)) {
 		t.Errorf("output = %q; want %q", out, msg)
 	}
+}
+
+func execOnlyIfTest(t *testing.T, bashPath string) {
+	const runMessage = "RUNNING"
+	run := func(t *testing.T, name string, cond string, want string) {
+		c, err := (&catpogs.Catalog{
+			Resources: []*catpogs.Resource{
+				{
+					ID:      42,
+					Comment: "echo " + runMessage,
+					Which:   catalog.Resource_Which_exec,
+					Exec: &catpogs.Exec{
+						Command: &catpogs.Command{
+							Which: catalog.Exec_Command_Which_argv,
+							Argv:  []string{"/bin/echo", "-n", runMessage},
+						},
+						Condition: catpogs.ExecCondition{
+							Which: catalog.Exec_condition_Which_onlyIf,
+							OnlyIf: &catpogs.Command{
+								Which: catalog.Exec_Command_Which_argv,
+								Argv:  []string{cond},
+							},
+						},
+					},
+				},
+			},
+		}).ToCapnp()
+		if err != nil {
+			t.Fatalf("build catalog: %v", err)
+		}
+		out, err := runCatalog(name, bashPath, t, c)
+		if err != nil {
+			t.Errorf("run catalog: %v", err)
+		}
+		if !bytes.Equal(out, []byte(want)) {
+			t.Errorf("output = %q; want %q", out, want)
+		}
+	}
+	t.Run("True", func(t *testing.T) {
+		run(t, "execOnlyIfTrue", "/bin/true", runMessage)
+	})
+	t.Run("False", func(t *testing.T) {
+		run(t, "execOnlyIfFalse", "/bin/false", "")
+	})
+}
+
+func execUnlessTest(t *testing.T, bashPath string) {
+	const runMessage = "RUNNING"
+	run := func(t *testing.T, name string, cond string, want string) {
+		c, err := (&catpogs.Catalog{
+			Resources: []*catpogs.Resource{
+				{
+					ID:      42,
+					Comment: "echo " + runMessage,
+					Which:   catalog.Resource_Which_exec,
+					Exec: &catpogs.Exec{
+						Command: &catpogs.Command{
+							Which: catalog.Exec_Command_Which_argv,
+							Argv:  []string{"/bin/echo", "-n", runMessage},
+						},
+						Condition: catpogs.ExecCondition{
+							Which: catalog.Exec_condition_Which_unless,
+							Unless: &catpogs.Command{
+								Which: catalog.Exec_Command_Which_argv,
+								Argv:  []string{cond},
+							},
+						},
+					},
+				},
+			},
+		}).ToCapnp()
+		if err != nil {
+			t.Fatalf("build catalog: %v", err)
+		}
+		out, err := runCatalog(name, bashPath, t, c)
+		if err != nil {
+			t.Errorf("run catalog: %v", err)
+		}
+		if !bytes.Equal(out, []byte(want)) {
+			t.Errorf("output = %q; want %q", out, want)
+		}
+	}
+	t.Run("True", func(t *testing.T) {
+		run(t, "execUnlessTrue", "/bin/true", "")
+	})
+	t.Run("False", func(t *testing.T) {
+		run(t, "execUnlessFalse", "/bin/false", runMessage)
+	})
 }
 
 func execIfDepsChangedTest(t *testing.T, bashPath string) {

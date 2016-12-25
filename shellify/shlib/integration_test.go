@@ -436,11 +436,6 @@ func skipFailTest(t *testing.T, bashPath string) {
 }
 
 func execTest(t *testing.T, bashPath string) {
-	_, deleteTempDir, err := makeTempDir(t)
-	if err != nil {
-		t.Fatalf("temp directory: %v", err)
-	}
-	defer deleteTempDir()
 	const msg = "Hello, World!"
 	c, err := (&catpogs.Catalog{
 		Resources: []*catpogs.Resource{
@@ -470,11 +465,6 @@ func execTest(t *testing.T, bashPath string) {
 }
 
 func execBashTest(t *testing.T, bashPath string) {
-	_, deleteTempDir, err := makeTempDir(t)
-	if err != nil {
-		t.Fatalf("temp directory: %v", err)
-	}
-	defer deleteTempDir()
 	const msg = "Hello, World!"
 	c, err := (&catpogs.Catalog{
 		Resources: []*catpogs.Resource{

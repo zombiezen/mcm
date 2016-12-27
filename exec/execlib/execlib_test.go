@@ -19,247 +19,19 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
-	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/zombiezen/mcm/catalog"
 	. "github.com/zombiezen/mcm/exec/execlib"
+	"github.com/zombiezen/mcm/internal/applytests"
 	"github.com/zombiezen/mcm/internal/catpogs"
 	"github.com/zombiezen/mcm/internal/system"
 	"github.com/zombiezen/mcm/internal/system/fakesystem"
 )
 
-func TestEmpty(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	cat, err := new(catpogs.Catalog).ToCapnp()
-	if err != nil {
-		t.Fatal("new(catpogs.Catalog).ToCapnp():", err)
-	}
-	app := &Applier{
-		System: new(fakesystem.System),
-		Log:    testLogger{t: t},
-	}
-	err = app.Apply(ctx, cat)
-	if err != nil {
-		t.Error("Apply:", err)
-	}
-}
-
-func TestFile(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	fpath := filepath.Join(fakesystem.Root, "foo")
-	cat, err := (&catpogs.Catalog{
-		Resources: []*catpogs.Resource{
-			{
-				ID:      42,
-				Comment: "file",
-				Which:   catalog.Resource_Which_file,
-				File:    catpogs.PlainFile(fpath, []byte("Hello")),
-			},
-		},
-	}).ToCapnp()
-	if err != nil {
-		t.Fatal("catpogs.Catalog.ToCapnp():", err)
-	}
-	sys := new(fakesystem.System)
-	app := &Applier{
-		System: sys,
-		Log:    testLogger{t: t},
-	}
-	err = app.Apply(ctx, cat)
-	if err != nil {
-		t.Error("Apply:", err)
-	}
-
-	f, err := sys.OpenFile(ctx, fpath)
-	if err != nil {
-		t.Fatalf("sys.OpenFile(ctx, %q): %v", fpath, err)
-	}
-	defer f.Close()
-	data, err := ioutil.ReadAll(f)
-	if err != nil {
-		t.Errorf("ioutil.ReadAll(sys.OpenFile(ctx, %q)): %v", fpath, err)
-	}
-	if !bytes.Equal(data, []byte("Hello")) {
-		t.Errorf("ioutil.ReadAll(sys.OpenFile(ctx, %q)) = %q; want \"Hello\"", fpath, data)
-	}
-}
-
-func TestLink(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	fpath := filepath.Join(fakesystem.Root, "foo")
-	lpath := filepath.Join(fakesystem.Root, "link")
-	cat, err := (&catpogs.Catalog{
-		Resources: []*catpogs.Resource{
-			{
-				ID:      42,
-				Comment: "file",
-				Which:   catalog.Resource_Which_file,
-				File:    catpogs.PlainFile(fpath, []byte("Hello")),
-			},
-			{
-				ID:      100,
-				Deps:    []uint64{42},
-				Comment: "link",
-				Which:   catalog.Resource_Which_file,
-				File:    catpogs.SymlinkFile(fpath, lpath),
-			},
-		},
-	}).ToCapnp()
-	if err != nil {
-		t.Fatal("catpogs.Catalog.ToCapnp():", err)
-	}
-	sys := new(fakesystem.System)
-	app := &Applier{
-		System: sys,
-		Log:    testLogger{t: t},
-	}
-	err = app.Apply(ctx, cat)
-	if err != nil {
-		t.Error("Apply:", err)
-	}
-
-	if info, err := sys.Lstat(ctx, lpath); err == nil {
-		if info.Mode()&os.ModeType != os.ModeSymlink {
-			t.Errorf("sys.Lstat(ctx, %q).Mode() = %v; want symlink", lpath, info.Mode())
-		}
-	} else {
-		t.Errorf("sys.Lstat(ctx, %q): %v", lpath, err)
-	}
-	if target, err := sys.Readlink(ctx, lpath); err == nil {
-		if target != fpath {
-			t.Errorf("sys.Readlink(ctx, %q) = %q; want %q", lpath, target, fpath)
-		}
-	} else {
-		t.Errorf("sys.Readlink(ctx, %q): %v", lpath, err)
-	}
-	if f, err := sys.OpenFile(ctx, lpath); err == nil {
-		defer f.Close()
-		data, err := ioutil.ReadAll(f)
-		if err != nil {
-			t.Errorf("ioutil.ReadAll(sys.OpenFile(ctx, %q)): %v", lpath, err)
-		}
-		if !bytes.Equal(data, []byte("Hello")) {
-			t.Errorf("ioutil.ReadAll(sys.OpenFile(ctx, %q)) = %q; want \"Hello\"", lpath, data)
-		}
-	} else {
-		t.Errorf("sys.OpenFile(ctx, %q): %v", lpath, err)
-	}
-}
-
-func TestRelink(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	f1path := filepath.Join(fakesystem.Root, "foo")
-	f2path := filepath.Join(fakesystem.Root, "bar")
-	lpath := filepath.Join(fakesystem.Root, "link")
-	cat, err := (&catpogs.Catalog{
-		Resources: []*catpogs.Resource{
-			{
-				ID:      42,
-				Comment: "link",
-				Which:   catalog.Resource_Which_file,
-				File:    catpogs.SymlinkFile(f2path, lpath),
-			},
-		},
-	}).ToCapnp()
-	if err != nil {
-		t.Fatal("catpogs.Catalog.ToCapnp():", err)
-	}
-	sys := new(fakesystem.System)
-	if err := system.WriteFile(ctx, sys, f1path, []byte("File 1"), 0666); err != nil {
-		t.Fatal("WriteFile 1:", err)
-	}
-	if err := system.WriteFile(ctx, sys, f2path, []byte("File 2"), 0666); err != nil {
-		t.Fatal("WriteFile 2:", err)
-	}
-	if err := sys.Symlink(ctx, f1path, lpath); err != nil {
-		t.Fatalf("Symlink %s -> %s: %v", lpath, f1path, err)
-	}
-
-	app := &Applier{
-		System: sys,
-		Log:    testLogger{t: t},
-	}
-	err = app.Apply(ctx, cat)
-	if err != nil {
-		t.Error("Apply:", err)
-	}
-
-	if info, err := sys.Lstat(ctx, lpath); err == nil {
-		if info.Mode()&os.ModeType != os.ModeSymlink {
-			t.Errorf("sys.Lstat(ctx, %q).Mode() = %v; want symlink", lpath, info.Mode())
-		}
-	} else {
-		t.Errorf("sys.Lstat(ctx, %q): %v", lpath, err)
-	}
-	if target, err := sys.Readlink(ctx, lpath); err == nil {
-		if target != f2path {
-			t.Errorf("sys.Readlink(ctx, %q) = %q; want %q", lpath, target, f2path)
-		}
-	} else {
-		t.Errorf("sys.Readlink(ctx, %q): %v", lpath, err)
-	}
-}
-
-func TestExec(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	binpath := filepath.Join(fakesystem.Root, "bin")
-	aptpath := filepath.Join(binpath, "apt-get")
-	cat, err := (&catpogs.Catalog{
-		Resources: []*catpogs.Resource{
-			{
-				ID:      42,
-				Comment: "apt-get update",
-				Which:   catalog.Resource_Which_exec,
-				Exec: &catpogs.Exec{
-					Command: &catpogs.Command{
-						Which: catalog.Exec_Command_Which_argv,
-						Argv:  []string{aptpath, "update"},
-					},
-					Condition: catpogs.ExecCondition{Which: catalog.Exec_condition_Which_always},
-				},
-			},
-		},
-	}).ToCapnp()
-	if err != nil {
-		t.Fatal("catpogs.Catalog.ToCapnp():", err)
-	}
-	sys := new(fakesystem.System)
-	if err := sys.Mkdir(ctx, binpath, 0777); err != nil {
-		t.Fatalf("mkdir %s: %v", binpath, err)
-	}
-	called := false
-	err = sys.Mkprogram(aptpath, func(ctx context.Context, pc *fakesystem.ProgramContext) int {
-		if len(pc.Args) != 2 || pc.Args[1] != "update" {
-			fmt.Fprintf(pc.Output, "arguments = %v; want [update]\n", pc.Args[1:])
-			return 1
-		}
-		called = true
-		return 0
-	})
-	if err != nil {
-		t.Fatal("Mkprogram:", err)
-	}
-
-	app := &Applier{
-		System: sys,
-		Log:    testLogger{t: t},
-	}
-	err = app.Apply(ctx, cat)
-	if err != nil {
-		t.Error("Apply:", err)
-	}
-
-	if !called {
-		t.Error("program not executed")
-	}
+func TestApplier(t *testing.T) {
+	applytests.Run(t, newFixture)
 }
 
 func TestExecBash(t *testing.T) {
@@ -327,100 +99,87 @@ func TestExecBash(t *testing.T) {
 	}
 }
 
-func TestExecIfDepsChanged(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	binpath := filepath.Join(fakesystem.Root, "bin")
-	fpath := filepath.Join(fakesystem.Root, "config")
-	aptpath := filepath.Join(binpath, "apt-get")
-	cat, err := (&catpogs.Catalog{
-		Resources: []*catpogs.Resource{
-			{
-				ID:      100,
-				Comment: "file",
-				Which:   catalog.Resource_Which_file,
-				File:    catpogs.PlainFile(fpath, []byte("Hello")),
-			},
-			{
-				ID:      42,
-				Comment: "apt-get update",
-				Deps:    []uint64{100},
-				Which:   catalog.Resource_Which_exec,
-				Exec: &catpogs.Exec{
-					Command: &catpogs.Command{
-						Which: catalog.Exec_Command_Which_argv,
-						Argv:  []string{aptpath, "update"},
-					},
-					Condition: catpogs.ExecCondition{
-						Which:         catalog.Exec_condition_Which_ifDepsChanged,
-						IfDepsChanged: []uint64{100},
-					},
-				},
-			},
-		},
-	}).ToCapnp()
-	if err != nil {
-		t.Fatal("catpogs.Catalog.ToCapnp():", err)
+type fixture struct {
+	sys  *fakesystem.System
+	log  applytests.Logger
+	info *applytests.SystemInfo
+}
+
+func newFixture(ctx context.Context, log applytests.Logger, name string) (applytests.Fixture, error) {
+	sys := new(fakesystem.System)
+	binPath := filepath.Join(fakesystem.Root, "mybin")
+	info := &applytests.SystemInfo{
+		Root:      filepath.Join(fakesystem.Root, "subdir"),
+		TruePath:  filepath.Join(binPath, "true"),
+		FalsePath: filepath.Join(binPath, "false"),
+		TouchPath: filepath.Join(binPath, "touch"),
 	}
-	t.Run("trigger", func(t *testing.T) {
-		sys := new(fakesystem.System)
-		if err := sys.Mkdir(ctx, binpath, 0777); err != nil {
-			t.Fatalf("mkdir %s: %v", binpath, err)
-		}
-		called := false
-		err = sys.Mkprogram(aptpath, func(ctx context.Context, pc *fakesystem.ProgramContext) int {
-			called = true
-			return 0
-		})
-		if err != nil {
-			t.Fatal("Mkprogram:", err)
-		}
-		app := &Applier{
-			System: sys,
-			Log:    testLogger{t: t},
-		}
-		err = app.Apply(ctx, cat)
-		if err != nil {
-			t.Error("Apply:", err)
-		}
-		if !called {
-			t.Error("program not executed")
-		}
+	if err := sys.Mkdir(ctx, binPath, 0755); err != nil {
+		return nil, err
+	}
+	if err := sys.Mkdir(ctx, info.Root, 0755); err != nil {
+		return nil, err
+	}
+	err := sys.Mkprogram(info.TruePath, func(ctx context.Context, pc *fakesystem.ProgramContext) int {
+		return 0
 	})
-	t.Run("no-op", func(t *testing.T) {
-		sys := new(fakesystem.System)
-		if err := sys.Mkdir(ctx, binpath, 0777); err != nil {
-			t.Fatalf("mkdir %s: %v", binpath, err)
-		}
-		called := false
-		err = sys.Mkprogram(aptpath, func(ctx context.Context, pc *fakesystem.ProgramContext) int {
-			called = true
-			return 0
-		})
-		if err != nil {
-			t.Fatal("Mkprogram:", err)
-		}
-		if err := system.WriteFile(ctx, sys, fpath, []byte("Hello"), 0666); err != nil {
-			t.Fatal("WriteFile:", err)
-		}
-		app := &Applier{
-			System: sys,
-			Log:    testLogger{t: t},
-		}
-		err = app.Apply(ctx, cat)
-		if err != nil {
-			t.Error("Apply:", err)
-		}
-		if called {
-			t.Error("program executed even though file existed")
-		}
+	if err != nil {
+		return nil, err
+	}
+	err = sys.Mkprogram(info.FalsePath, func(ctx context.Context, pc *fakesystem.ProgramContext) int {
+		return 1
 	})
+	if err != nil {
+		return nil, err
+	}
+	err = sys.Mkprogram(info.TouchPath, func(ctx context.Context, pc *fakesystem.ProgramContext) int {
+		if len(pc.Args) != 2 {
+			fmt.Fprintln(pc.Output, "usage: touch FILE")
+			return 1
+		}
+		w, err := sys.CreateFile(ctx, pc.Args[1], 0666)
+		if err != nil {
+			fmt.Fprintln(pc.Output, "touch:", err)
+			return 1
+		}
+		if err := w.Close(); err != nil {
+			fmt.Fprintln(pc.Output, "touch:", err)
+			return 1
+		}
+		return 0
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &fixture{
+		sys:  sys,
+		log:  log,
+		info: info,
+	}, nil
+}
+
+func (f *fixture) Apply(ctx context.Context, c catalog.Catalog) error {
+	app := &Applier{
+		System: f.sys,
+		Log:    testLogger{t: f.log},
+	}
+	return app.Apply(ctx, c)
+}
+
+func (f *fixture) System() system.System {
+	return f.sys
+}
+
+func (f *fixture) SystemInfo() *applytests.SystemInfo {
+	return f.info
+}
+
+func (f *fixture) Close() error {
+	return nil
 }
 
 type testLogger struct {
-	t interface {
-		Logf(string, ...interface{})
-	}
+	t applytests.Logger
 }
 
 func (tl testLogger) Infof(ctx context.Context, format string, args ...interface{}) {

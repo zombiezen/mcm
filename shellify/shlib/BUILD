@@ -35,6 +35,8 @@ go_test(
     deps = [
         ":go_default_library",
         "//:catalog",
+        "//internal/applytests:go_default_library",
         "//internal/catpogs:go_default_library",
+        "//internal/system:go_default_library",
     ],
 )

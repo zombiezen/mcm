@@ -12,22 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-package(default_visibility = ["//exec:__subpackages__"])
+package(default_visibility = ["//:__subpackages__"])
 
 go_default_library(
-    test = 1,
-    test_separate = 1,
+    testonly = 1,
     deps = [
         "//:catalog",
-        "//internal/depgraph:go_default_library",
-        "//internal/system:go_default_library",
-    ],
-    test_deps = [
-        ":go_default_library",
-        "//:catalog",
-        "//internal/applytests:go_default_library",
         "//internal/catpogs:go_default_library",
         "//internal/system:go_default_library",
-        "//internal/system/fakesystem:go_default_library",
     ],
 )

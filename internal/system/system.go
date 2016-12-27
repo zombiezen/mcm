@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/ioutil"
 	"os"
 )
 
@@ -82,6 +83,15 @@ type Cmd struct {
 
 func IsExist(err error) bool    { return os.IsExist(err) }
 func IsNotExist(err error) bool { return os.IsNotExist(err) }
+
+func ReadFile(ctx context.Context, fs FS, path string) ([]byte, error) {
+	f, err := fs.OpenFile(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return ioutil.ReadAll(f)
+}
 
 func WriteFile(ctx context.Context, fs FS, path string, content []byte, mode os.FileMode) error {
 	w, err := fs.CreateFile(ctx, path, mode)

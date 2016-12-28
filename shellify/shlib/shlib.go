@@ -106,6 +106,11 @@ func (g *gen) resourceFunc(r catalog.Resource) error {
 	g.in()
 	defer g.out()
 
+	if c, _ := r.Comment(); c != "" {
+		g.p(script("echo"), fmt.Sprintf("applying: %s (id=%d)", c, r.ID()), script("1>&2"))
+	} else {
+		g.p(script("echo"), fmt.Sprintf("applying: id=%d", r.ID()), script("1>&2"))
+	}
 	statVar := resourceStatusVar(id)
 	switch r.Which() {
 	case catalog.Resource_Which_noop:

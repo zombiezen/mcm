@@ -95,8 +95,6 @@ private:
 OwnState newLuaState();
 // Create a new Lua interpreter.
 
-kj::String dirName(kj::StringPtr path);
-
 }  // namespace luacat
 }  // namespace mcm
 

@@ -27,18 +27,13 @@ extern "C" {
 
 #include "luacat/convert.h"
 #include "luacat/lib.h"
+#include "luacat/path.h"
 
 namespace mcm {
 
 namespace luacat {
 
 namespace {
-#if _WIN32
-  const char pathSep = '\\';
-#else
-  const char pathSep = '/';
-#endif
-
   const luaL_Reg loadedlibs[] = {
     {"_G", luaopen_base},
     {LUA_LOADLIBNAME, luaopen_package},
@@ -130,7 +125,7 @@ void Main::process(capnp::MessageBuilder& message, kj::StringPtr chunkName, kj::
   if (chunkName.size() >= 1 && chunkName[0] == '@') {
     // Actual file name
     auto srcDir = dirName(chunkName.slice(1));
-    auto luaPath = kj::str(srcDir, pathSep, "?.lua;", srcDir, pathSep, "?", pathSep, "init.lua");
+    auto luaPath = kj::str(joinPath(srcDir, "?.lua"), ";", joinPath(srcDir, "?", "init.lua"));
     pushLua(state, luaPath);
   } else {
     // Not a real file (testing).
@@ -167,14 +162,6 @@ OwnState newLuaState() {
   lua_State* state = luaL_newstate();
   KJ_ASSERT_NONNULL(state);
   return OwnState(state);
-}
-
-kj::String dirName(kj::StringPtr path) {
-  KJ_IF_MAYBE(slashPos, path.findLast(pathSep)) {
-    return kj::heapString(path.slice(0, *slashPos));
-  } else {
-    return kj::heapString(".");
-  }
 }
 
 }  // namespace luacat

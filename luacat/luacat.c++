@@ -12,73 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <unistd.h>
+#include "luacat/main.h"
 
-#include "kj/exception.h"
-#include "kj/main.h"
 #include "kj/io.h"
-#include "kj/string.h"
-#include "capnp/message.h"
-#include "capnp/serialize.h"
-#include "luacat/interp.h"
+#include "kj/main.h"
+#include "kj/miniposix.h"
 
-namespace mcm {
-
-namespace luacat {
-
-namespace {
-#if _WIN32
-  const char pathSep = '\\';
-#else
-  const char pathSep = '/';
-#endif
-  kj::String dirName(kj::StringPtr path) {
-    KJ_IF_MAYBE(slashPos, path.findLast(pathSep)) {
-      return kj::heapString(path.slice(0, *slashPos));
-    } else {
-      return kj::heapString(".");
-    }
-  }
+int main(int argc, char* argv[]) {
+  kj::TopLevelProcessContext context(argv[0]);
+  kj::FdOutputStream out(STDOUT_FILENO);
+  kj::FdOutputStream err(STDERR_FILENO);
+  mcm::luacat::Main mainObject(context, out, err);
+  return kj::runMainAndExit(context, mainObject.getMain(), argc, argv);
 }
-
-class Main {
-public:
-  Main(kj::ProcessContext& context): context(context) {}
-
-  kj::MainBuilder::Validity processFile(kj::StringPtr src) {
-    if (src.size() == 0) {
-      return kj::str("empty source");
-    }
-    kj::FdOutputStream out(STDOUT_FILENO);
-    kj::FdOutputStream err(STDERR_FILENO);
-    auto srcDir = dirName(src);
-    auto luaPath = kj::str(srcDir, pathSep, "?.lua;", srcDir, pathSep, "?", pathSep, "init.lua");
-    auto maybeExc = kj::runCatchingExceptions([&]() {
-      Lua l(err);
-      l.setPath(luaPath);
-      l.exec(src);
-      capnp::MallocMessageBuilder message;
-      l.finish(message);
-      capnp::writeMessage(out, message);
-    });
-    KJ_IF_MAYBE(e, maybeExc) {
-      context.error(e->getDescription());
-    }
-
-    return true;
-  }
-
-  kj::MainFunc getMain() {
-    return kj::MainBuilder(context, "mcm-luacat", "Interprets Lua source and generates an mcm catalog.")
-        .expectArg("FILE", KJ_BIND_METHOD(*this, processFile))
-        .build();
-  }
-
-private:
-  kj::ProcessContext& context;
-};
-
-}  // namespace luacat
-}  // namespace mcm
-
-KJ_MAIN(mcm::luacat::Main)

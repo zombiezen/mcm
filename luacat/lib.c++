@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "luacat/interp.h"
+#include "luacat/lib.h"
 
 #include <fcntl.h>
-#include "kj/array.h"
 #include "kj/debug.h"
 #include "kj/exception.h"
 #include "kj/string.h"
@@ -27,8 +26,8 @@
 #include "openssl/sha.h"
 
 #include "catalog.capnp.h"
+#include "luacat/convert.h"
 #include "luacat/types.h"
-#include "luacat/value.h"
 
 namespace mcm {
 
@@ -37,14 +36,14 @@ namespace luacat {
 namespace {
   const char* idHashPrefix = "mcm-luacat ID: ";
   const char* resourceTypeMetaKey = "mcm_resource";
-  const char* luaRefRegistryKey = "mcm::Lua";
+  const char* stateRefRegistryKey = "mcm::Lua";
   const uint64_t fileResId = 0x8dc4ac52b2962163;
   const uint64_t execResId = 0x984c97311006f1ca;
 
-  _::LuaInternal& getLuaInternalRef(lua_State* state) {
-    int ty = lua_getfield(state, LUA_REGISTRYINDEX, luaRefRegistryKey);
+  LibState& getStateRef(lua_State* state) {
+    int ty = lua_getfield(state, LUA_REGISTRYINDEX, stateRefRegistryKey);
     KJ_ASSERT(ty == LUA_TLIGHTUSERDATA);
-    auto ptr = reinterpret_cast<_::LuaInternal*>(lua_touserdata(state, -1));
+    auto ptr = reinterpret_cast<LibState*>(lua_touserdata(state, -1));
     lua_pop(state, 1);
     return *ptr;
   }
@@ -136,8 +135,8 @@ namespace {
     }
     lua_pop(state, 1);
 
-    auto& l = getLuaInternalRef(state);
-    auto res = l.newResource();
+    auto& libState = getStateRef(state);
+    auto res = libState.newResource();
     KJ_IF_MAYBE(id, getId(state, 1)) {
       res.setId(id->getValue());
       res.setComment(id->getComment());
@@ -209,7 +208,7 @@ namespace {
     {NULL, NULL},
   };
 
-  int openlib(lua_State* state) {
+  int openmcm(lua_State* state) {
     luaL_newlib(state, mcmlib);
 
     lua_newtable(state);
@@ -220,116 +219,19 @@ namespace {
     lua_setfield(state, -2, "noop");  // mcm.noop = TOP
     return 1;
   }
-
-  const luaL_Reg loadedlibs[] = {
-    {"_G", luaopen_base},
-    {LUA_LOADLIBNAME, luaopen_package},
-    {LUA_COLIBNAME, luaopen_coroutine},
-    {LUA_TABLIBNAME, luaopen_table},
-    {LUA_STRLIBNAME, luaopen_string},
-    {LUA_MATHLIBNAME, luaopen_math},
-    {LUA_UTF8LIBNAME, luaopen_utf8},
-    {"mcm", openlib},
-    {NULL, NULL}
-  };
-
-  int printfunc(lua_State *state) {
-    // Customized implementation of print().
-    // We could customize this in vendored copy, but this keeps the
-    // application/vendored code separation clean.
-
-    auto& stream = getLuaInternalRef(state).getLog();
-    int n = lua_gettop(state);  // number of arguments
-    int i;
-    lua_getglobal(state, "tostring");
-    for (i = 1; i <= n; i++) {
-      const char *s;
-      size_t l;
-      lua_pushvalue(state, -1);  // function to be called
-      lua_pushvalue(state, i);   // value to print
-      lua_call(state, 1, 1);
-      s = lua_tolstring(state, -1, &l);  // get result
-      if (s == NULL) {
-        return luaL_error(state, "'tostring' must return a string to 'print'");
-      }
-      if (i > 1) {
-        stream.write("\t", 1);
-      }
-      stream.write(s, l);
-      lua_pop(state, 1);  // pop result
-    }
-    stream.write("\n", 1);
-    return 0;
-  }
 }  // namespace
 
-namespace _ {
-  LuaInternal::LuaInternal(kj::OutputStream& ls) : logStream(ls) {
-  }
-
-  Resource::Builder LuaInternal::newResource() {
-    auto orphan = scratch.getOrphanage().newOrphan<Resource>();
-    auto builder = orphan.get();
-    resources.add(kj::mv(orphan));
-    return builder;
-  }
-}  // namespace _
-
-Lua::Lua(kj::OutputStream& ls) : internal(ls) {
-  // TODO(someday): use lua_newstate and set atpanic
-  state = luaL_newstate();
-  KJ_ASSERT_NONNULL(state);
-  lua_pushlightuserdata(state, &internal);
-  lua_setfield(state, LUA_REGISTRYINDEX, luaRefRegistryKey);
-  const luaL_Reg *lib;
-  for (lib = loadedlibs; lib->func; lib++) {
-    luaL_requiref(state, lib->name, lib->func, 1);
-    lua_pop(state, 1);  // remove lib
-  }
-
-  // Override print function.
-  lua_getglobal(state, "_G");
-  lua_pushcfunction(state, printfunc);
-  lua_setfield(state, -2, "print");
-  lua_pop(state, 1);
+Resource::Builder LibState::newResource() {
+  auto orphan = scratch.getOrphanage().newOrphan<Resource>();
+  auto builder = orphan.get();
+  resources.add(kj::mv(orphan));
+  return builder;
 }
 
-void Lua::setPath(kj::StringPtr path) {
-  lua_getglobal(state, "package");
-  pushLua(state, path);
-  lua_setfield(state, -2, "path");
-  lua_pop(state, 1);
-}
-
-void Lua::exec(kj::StringPtr fname) {
-  auto chunkName = kj::str("@", fname);
-  int fd = open(fname.cStr(), O_RDONLY, 0);
-  KJ_ASSERT(fd != -1);
-  kj::AutoCloseFd afd(fd);
-  kj::FdInputStream stream(kj::mv(afd));
-  exec(chunkName, stream);
-}
-
-void Lua::exec(kj::StringPtr name, kj::InputStream& stream) {
-  if (luaLoad(state, name, stream) || lua_pcall(state, 0, 0, 0)) {
-    auto errMsg = kj::heapString(luaStringPtr(state, -1));
-    lua_pop(state, 1);
-    throw kj::Exception(kj::Exception::Type::FAILED, __FILE__, __LINE__, kj::mv(errMsg));
-  }
-}
-
-void Lua::finish(capnp::MessageBuilder& message) {
-  auto catalog = message.initRoot<Catalog>();
-  auto resources = internal.getResources();
-  auto rlist = catalog.initResources(resources.size());
-  // TODO(soon): sort
-  for (size_t i = 0; i < resources.size(); i++) {
-    rlist.setWithCaveats(i, resources[i].get());
-  }
-}
-
-Lua::~Lua() {
-  lua_close(state);
+void openlib(lua_State *state, LibState& lib) {
+  lua_pushlightuserdata(state, &lib);
+  lua_setfield(state, LUA_REGISTRYINDEX, stateRefRegistryKey);
+  luaL_requiref(state, "mcm", openmcm, 0);  // pushes module onto the stack
 }
 
 }  // namespace luacat

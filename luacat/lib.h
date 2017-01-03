@@ -12,45 +12,41 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef MCM_LUACAT_VALUE_H_
-#define MCM_LUACAT_VALUE_H_
-
-#include <unistd.h>
-#include <stdint.h>
+#ifndef MCM_LUACAT_LIB_H_
+#define MCM_LUACAT_LIB_H_
+// mcm Lua module.
 
 #include "kj/common.h"
-#include "kj/debug.h"
-#include "kj/memory.h"
-#include "kj/string.h"
+#include "kj/vector.h"
+#include "capnp/message.h"
 
 extern "C" {
 #include "lua.h"
 }
 
+#include "catalog.capnp.h"
+
 namespace mcm {
 
 namespace luacat {
 
-class Id {
+class LibState {
+  // The mutable state of the mcm Lua module.
 public:
-  inline Id(uint64_t v, kj::StringPtr c) : value(v), comment(kj::heapString(c)) {}
-  KJ_DISALLOW_COPY(Id);
+  LibState() {}
+  KJ_DISALLOW_COPY(LibState);
 
-  inline uint64_t getValue() const { return value; }
-  inline kj::StringPtr getComment() const { return comment; }
-
+  Resource::Builder newResource();
+  inline kj::ArrayPtr<capnp::Orphan<Resource>> getResources() { return resources.asPtr(); }
 private:
-  uint64_t value;
-  kj::String comment;
+  capnp::MallocMessageBuilder scratch;
+  kj::Vector<capnp::Orphan<Resource>> resources;
 };
 
-void pushResourceType(lua_State* state, uint64_t rt);
-kj::Maybe<uint64_t> getResourceType(lua_State* state, int index);
-
-void pushId(lua_State* state, kj::Own<const Id> id);
-kj::Maybe<const Id&> getId(lua_State* state, int index);
+void openlib(lua_State* state, LibState& lib);
+// Loads the "mcm" module and leaves it at the top of the stack.
 
 }  // namespace luacat
 }  // namespace mcm
 
-#endif  // MCM_LUACAT_VALUE_H_
+#endif  // MCM_LUACAT_LIB_H_

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "luacat/types.h"
+#include "luacat/convert.h"
 
 #include <iostream>
 #include "gtest/gtest.h"
@@ -21,8 +21,9 @@
 #include "capnp/dynamic.h"
 #include "lua.hpp"
 
+#include "luacat/main.h"  // for OwnState
 #include "luacat/testsuite.capnp.h"
-#include "luacat/value.h"
+#include "luacat/types.h"
 
 namespace kj {
   void PrintTo(kj::ArrayPtr<const kj::byte> s, ::std::ostream* os) {
@@ -40,58 +41,6 @@ namespace kj {
   }
 }  // namespace kj
 
-namespace {
-  class OwnState {
-    // A transferrable title to a lua_State. 
-    // Similar to kj::Own, but kj::Own requires a complete type for its disposers.
-    // TODO(someday): use kj::Own instead
-    // TODO(someday): rewrite app code to use this
-
-  public:
-    KJ_DISALLOW_COPY(OwnState);
-    inline OwnState(): ptr(nullptr) {}
-    inline OwnState(OwnState&& other) noexcept
-        : ptr(other.ptr) { other.ptr = nullptr; }
-    explicit inline OwnState(lua_State* ptr) noexcept: ptr(ptr) {}
-
-    ~OwnState() noexcept {
-      if (ptr == nullptr) {
-        return;
-      }
-      lua_close(ptr);
-      ptr = nullptr;
-    }
-
-    inline OwnState& operator=(OwnState&& other) {
-      // Move-assignment operator.
-
-      lua_State* ptrCopy = ptr;
-      ptr = other.ptr;
-      other.ptr = nullptr;
-      if (ptrCopy != nullptr) {
-        lua_close(ptrCopy);
-      }
-      return *this;
-    }
-
-    inline OwnState& operator=(decltype(nullptr)) {
-      lua_close(ptr);
-      ptr = nullptr;
-      return *this;
-    }
-
-    inline lua_State* get() { return ptr; }
-    inline operator lua_State*() { return ptr; }
-
-  private:
-    lua_State* ptr;
-  };
-}  // namespace
-
-OwnState newLuaState() {
-  return OwnState(luaL_newstate());
-}
-
 void evalString(lua_State* state, kj::StringPtr s) {
   SCOPED_TRACE("evalString");
   auto actual = kj::str("return ", s, "\n");
@@ -105,7 +54,7 @@ void evalString(lua_State* state, kj::StringPtr s) {
 }
 
 TEST(CopyStructTest, VoidField) {
-  OwnState state = newLuaState();
+  auto state = mcm::luacat::newLuaState();
   ASSERT_NO_FATAL_FAILURE(evalString(state, "{void = true}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
@@ -116,7 +65,7 @@ TEST(CopyStructTest, VoidField) {
 }
 
 TEST(CopyStructTest, BoolFieldTrue) {
-  OwnState state = newLuaState();
+  auto state = mcm::luacat::newLuaState();
   ASSERT_NO_FATAL_FAILURE(evalString(state, "{bool = true}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
@@ -128,7 +77,7 @@ TEST(CopyStructTest, BoolFieldTrue) {
 }
 
 TEST(CopyStructTest, BoolFieldFalse) {
-  OwnState state = newLuaState();
+  auto state = mcm::luacat::newLuaState();
   ASSERT_NO_FATAL_FAILURE(evalString(state, "{bool = false}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
@@ -140,7 +89,7 @@ TEST(CopyStructTest, BoolFieldFalse) {
 }
 
 TEST(CopyStructTest, EnumField) {
-  OwnState state = newLuaState();
+  auto state = mcm::luacat::newLuaState();
   ASSERT_NO_FATAL_FAILURE(evalString(state, "{enum = \"that\"}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
@@ -152,7 +101,7 @@ TEST(CopyStructTest, EnumField) {
 }
 
 TEST(CopyStructTest, Int64Field) {
-  OwnState state = newLuaState();
+  auto state = mcm::luacat::newLuaState();
   ASSERT_NO_FATAL_FAILURE(evalString(state, "{int64 = -0x7fffffffffffffff}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
@@ -164,7 +113,7 @@ TEST(CopyStructTest, Int64Field) {
 }
 
 TEST(CopyStructTest, UInt64Field) {
-  OwnState state = newLuaState();
+  auto state = mcm::luacat::newLuaState();
   ASSERT_NO_FATAL_FAILURE(evalString(state, "{uint64 = 0x8000000000000000}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
@@ -176,7 +125,7 @@ TEST(CopyStructTest, UInt64Field) {
 }
 
 TEST(CopyStructTest, UInt64FieldWithId) {
-  OwnState state = newLuaState();
+  auto state = mcm::luacat::newLuaState();
   lua_createtable(state, 0, 1);
   mcm::luacat::pushId(state, kj::heap<const mcm::luacat::Id>(42, nullptr));
   lua_setfield(state, -2, "uint64");
@@ -190,7 +139,7 @@ TEST(CopyStructTest, UInt64FieldWithId) {
 }
 
 TEST(CopyStructTest, TextField) {
-  OwnState state = newLuaState();
+  auto state = mcm::luacat::newLuaState();
   ASSERT_NO_FATAL_FAILURE(evalString(state, "{text = \"Hello, World!\"}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
@@ -202,7 +151,7 @@ TEST(CopyStructTest, TextField) {
 }
 
 TEST(CopyStructTest, DataField) {
-  OwnState state = newLuaState();
+  auto state = mcm::luacat::newLuaState();
   ASSERT_NO_FATAL_FAILURE(evalString(state, "{data = \"Hello, World!\"}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
@@ -216,7 +165,7 @@ TEST(CopyStructTest, DataField) {
 }
 
 TEST(CopyListTest, BoolList) {
-  OwnState state = newLuaState();
+  auto state = mcm::luacat::newLuaState();
   ASSERT_NO_FATAL_FAILURE(evalString(state, "{boolList = {true, false, true}}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
@@ -231,7 +180,7 @@ TEST(CopyListTest, BoolList) {
 }
 
 TEST(CopyListTest, StructList) {
-  OwnState state = newLuaState();
+  auto state = mcm::luacat::newLuaState();
   ASSERT_NO_FATAL_FAILURE(evalString(state, "{structList = {{bool = true}, {int64 = 42}}}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
@@ -247,7 +196,7 @@ TEST(CopyListTest, StructList) {
 }
 
 TEST(CopyListTest, ListList) {
-  OwnState state = newLuaState();
+  auto state = mcm::luacat::newLuaState();
   ASSERT_NO_FATAL_FAILURE(evalString(state, "{listList = {{}, {-1, 42}, {314}}}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
@@ -265,7 +214,7 @@ TEST(CopyListTest, ListList) {
 }
 
 TEST(CopyListTest, EnumList) {
-  OwnState state = newLuaState();
+  auto state = mcm::luacat::newLuaState();
   ASSERT_NO_FATAL_FAILURE(evalString(state, "{enumList = {\"that\", \"this\"}}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
@@ -279,7 +228,7 @@ TEST(CopyListTest, EnumList) {
 }
 
 TEST(CopyListTest, UInt64List) {
-  OwnState state = newLuaState();
+  auto state = mcm::luacat::newLuaState();
   ASSERT_NO_FATAL_FAILURE(evalString(state, "{uint64List = {42, 0, 0xdeadbeef, 0x8000000000000000}}"));
   capnp::MallocMessageBuilder message;
   auto root = message.initRoot<mcm::luacat::GenericValue>();
@@ -296,7 +245,7 @@ TEST(CopyListTest, UInt64List) {
 }
 
 TEST(CopyListTest, UInt64ListWithId) {
-  OwnState state = newLuaState();
+  auto state = mcm::luacat::newLuaState();
   lua_createtable(state, 0, 1);
   lua_createtable(state, 1, 0);
   mcm::luacat::pushId(state, kj::heap<const mcm::luacat::Id>(42, nullptr));

@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "luacat/interp.h"
+#include "luacat/main.h"
 
 #include <iostream>
 #include "gtest/gtest.h"
 #include "capnp/any.h"
+#include "kj/debug.h"
 #include "kj/io.h"
 #include "kj/string.h"
 
@@ -43,14 +44,56 @@ namespace capnp {
   }
 }
 
+namespace {
+  struct NullInputStream : public kj::InputStream {
+    size_t tryRead(void* buffer, size_t minBytes, size_t maxBytes) override {
+      return 0;
+    }
+  };
+
+  struct DiscardOutputStream : public kj::OutputStream {
+    void write(const void* buffer, size_t size) override {
+    }
+  };
+
+  struct FakeProcessContext : public kj::ProcessContext {
+    kj::StringPtr getProgramName() override {
+      return nullptr;
+    }
+
+    void exit() override {
+      KJ_FAIL_ASSERT("exit");
+    }
+
+    void warning(kj::StringPtr message) override {}
+
+    void error(kj::StringPtr message) override {}
+
+    void exitError(kj::StringPtr message) override {
+      error(message);
+      exit();
+    }
+
+    void exitInfo(kj::StringPtr message) override {
+      exit();
+    }
+
+    void increaseLoggingVerbosity() override {}
+  };
+}  // namespace
+
 const int logBufMax = 4096;
 
 TEST(LuaTest, NoExecHasEmptyCatalog) {
+  DiscardOutputStream discardStdout;
   auto logBuf = kj::heapArray<kj::byte>(logBufMax);
   kj::ArrayOutputStream logBufStream(logBuf);
-  mcm::luacat::Lua l(logBufStream);
+  FakeProcessContext ctx;
+  mcm::luacat::Main main(ctx, discardStdout, logBufStream);
   capnp::MallocMessageBuilder message;
-  l.finish(message);
+
+  NullInputStream script;
+  main.process(message, "=(load)", script);
 
   auto catalog = message.getRoot<mcm::Catalog>().asReader();
   ASSERT_EQ(0, catalog.getResources().size());
@@ -59,14 +102,15 @@ TEST(LuaTest, NoExecHasEmptyCatalog) {
 TEST(LuaTest, TestSuite) {
   for (auto testCase : mcm::luacat::TEST_SUITE->getTests()) {
     SCOPED_TRACE(testCase.getName().cStr());
+    DiscardOutputStream discardStdout;
     auto logBuf = kj::heapArray<kj::byte>(logBufMax);
     kj::ArrayOutputStream logBufStream(logBuf);
-    mcm::luacat::Lua l(logBufStream);
+    FakeProcessContext ctx;
+    mcm::luacat::Main main(ctx, discardStdout, logBufStream);
     // TODO(soon): catch exceptions
     kj::ArrayInputStream scriptStream(testCase.getScript().asBytes());
-    l.exec("=(load)", scriptStream);
     capnp::MallocMessageBuilder message;
-    l.finish(message);
+    main.process(message, "=(load)", scriptStream);
 
     if (testCase.getExpected().hasCatalog()) {
       auto catalog = message.getRoot<mcm::Catalog>().asReader();

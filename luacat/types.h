@@ -14,15 +14,15 @@
 
 #ifndef MCM_LUACAT_TYPES_H_
 #define MCM_LUACAT_TYPES_H_
-// Conversions between Lua built-in types and C++ (KJ) types.
+// Custom types for luacat (used in the mcm module).
 
 #include <unistd.h>
+#include <stdint.h>
 
-#include "kj/array.h"
-#include "kj/exception.h"
-#include "kj/io.h"
+#include "kj/common.h"
+#include "kj/debug.h"
+#include "kj/memory.h"
 #include "kj/string.h"
-#include "capnp/dynamic.h"
 
 extern "C" {
 #include "lua.h"
@@ -32,33 +32,24 @@ namespace mcm {
 
 namespace luacat {
 
-const kj::ArrayPtr<const kj::byte> luaBytePtr(lua_State* state, int index);
-// Converts the Lua value at the given index to a byte array.
-// The memory is owned by Lua, so the caller must keep the Lua value on
-// the stack while the return value is live.
+class Id {
+public:
+  inline Id(uint64_t v, kj::StringPtr c) : value(v), comment(kj::heapString(c)) {}
+  KJ_DISALLOW_COPY(Id);
 
-const kj::StringPtr luaStringPtr(lua_State* state, int index);
-// Converts the Lua value at the given index to a string.
-// The memory is owned by Lua, so the caller must keep the Lua value on
-// the stack while the return value is live.
+  inline uint64_t getValue() const { return value; }
+  inline kj::StringPtr getComment() const { return comment; }
 
-int luaLoad(lua_State* state, kj::StringPtr name, kj::InputStream& stream);
+private:
+  uint64_t value;
+  kj::String comment;
+};
 
-inline void pushLua(lua_State* state, const kj::StringPtr s) {
-  // Push a string onto the Lua stack.
-  lua_pushlstring(state, s.cStr(), s.size());
-}
+void pushResourceType(lua_State* state, uint64_t rt);
+kj::Maybe<uint64_t> getResourceType(lua_State* state, int index);
 
-void pushLua(lua_State* state, kj::Exception& e);
-// Push a description of e onto the Lua stack.
-
-void copyStruct(lua_State* state, capnp::DynamicStruct::Builder builder);
-// Converts the Lua value at the top of the stack into a Cap'n Proto struct.
-// Throws kj::Exception on input validation error.
-
-void copyList(lua_State* state, capnp::DynamicList::Builder builder);
-// Converts the Lua value at the top of the stack into a Cap'n Proto list.
-// Throws kj::Exception on input validation error.
+void pushId(lua_State* state, kj::Own<const Id> id);
+kj::Maybe<const Id&> getId(lua_State* state, int index);
 
 }  // namespace luacat
 }  // namespace mcm

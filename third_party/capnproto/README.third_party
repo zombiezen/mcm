@@ -10,3 +10,4 @@ Local Modifications:
 Change certain import paths to match repo
 Add Go annotations to RPC and C++ schemas
 Change C++ codegen to use quotes in #include
+Add getFd() method to FdInputStream and FdOutputStream

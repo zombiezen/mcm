@@ -25,15 +25,24 @@
 
 namespace kj {
   inline void PrintTo(const kj::String& s, ::std::ostream* os) {
+    *os << '"';
     os->write(s.begin(), s.size());
-  }
-
-  inline void PrintTo(capnp::Text::Reader s, ::std::ostream* os) {
-    os->write(s.begin(), s.size());
+    *os << '"';
   }
 
   inline void PrintTo(kj::StringPtr s, ::std::ostream* os) {
+    *os << '"';
     os->write(s.begin(), s.size());
+    *os << '"';
+  }
+
+  inline ::std::ostream& operator<<(::std::ostream& os, const kj::MainBuilder::Validity& v) {
+    KJ_IF_MAYBE(msg, v.getError()) {
+      PrintTo(kj::str("kj::MainBuilder::Validity(\"", msg, "\")"), &os);
+      return os;
+    } else {
+      return os << "kj::MainBuilder::Validity(true)";
+    }
   }
 }
 
@@ -41,6 +50,10 @@ namespace capnp {
   inline void PrintTo(capnp::Equality eq, ::std::ostream* os) {
     auto s = kj::str(eq);
     kj::PrintTo(s, os);
+  }
+
+  inline void PrintTo(capnp::Text::Reader s, ::std::ostream* os) {
+    os->write(s.begin(), s.size());
   }
 }
 
@@ -80,6 +93,10 @@ namespace {
 
     void increaseLoggingVerbosity() override {}
   };
+
+  inline bool isValidOption(const kj::MainBuilder::Validity& v) {
+    return v.getError() == nullptr;
+  }
 }  // namespace
 
 const int logBufMax = 4096;
@@ -87,10 +104,10 @@ const int logBufMax = 4096;
 TEST(MainTest, TestSuite) {
   for (auto testCase : mcm::luacat::TEST_SUITE->getTests()) {
     SCOPED_TRACE(testCase.getName().cStr());
+    FakeProcessContext ctx;
     DiscardOutputStream discardStdout;
     auto logBuf = kj::heapArray<kj::byte>(logBufMax);
     kj::ArrayOutputStream logBufStream(logBuf);
-    FakeProcessContext ctx;
     mcm::luacat::Main main(ctx, discardStdout, logBufStream);
     // TODO(soon): catch exceptions
     kj::ArrayInputStream scriptStream(testCase.getScript().asBytes());
@@ -110,4 +127,86 @@ TEST(MainTest, TestSuite) {
     auto outString = kj::heapString(reinterpret_cast<char*>(outArray.begin()), outArray.size());
     EXPECT_EQ(testCase.getExpected().getOutput(), outString);
   }
+}
+
+TEST(MainTest, DefaultPackagePathIsEmpty) {
+  FakeProcessContext ctx;
+  DiscardOutputStream discardStdout;
+  auto logBuf = kj::heapArray<kj::byte>(logBufMax);
+  kj::ArrayOutputStream logBufStream(logBuf);
+  mcm::luacat::Main main(ctx, discardStdout, logBufStream);
+  kj::ArrayInputStream scriptStream(kj::StringPtr("print(package.path)\n").asBytes());
+  capnp::MallocMessageBuilder message;
+  main.process(message, "=(load)", scriptStream);
+
+  auto outArray = logBufStream.getArray();
+  auto outString = kj::heapString(reinterpret_cast<char*>(outArray.begin()), outArray.size());
+  ASSERT_EQ("\n", outString);
+}
+
+TEST(MainTest, AddIncludePathAddsToPackagePath) {
+  FakeProcessContext ctx;
+  DiscardOutputStream discardStdout;
+  auto logBuf = kj::heapArray<kj::byte>(logBufMax);
+  kj::ArrayOutputStream logBufStream(logBuf);
+  mcm::luacat::Main main(ctx, discardStdout, logBufStream);
+  ASSERT_PRED1(isValidOption, main.addIncludePath("?.lua"));
+  kj::ArrayInputStream scriptStream(kj::StringPtr("print(package.path)\n").asBytes());
+  capnp::MallocMessageBuilder message;
+  main.process(message, "=(load)", scriptStream);
+
+  auto outArray = logBufStream.getArray();
+  auto outString = kj::heapString(reinterpret_cast<char*>(outArray.begin()), outArray.size());
+  ASSERT_EQ("?.lua\n", outString);
+}
+
+TEST(MainTest, AddIncludePathAllowsMultiplePaths) {
+  FakeProcessContext ctx;
+  DiscardOutputStream discardStdout;
+  auto logBuf = kj::heapArray<kj::byte>(logBufMax);
+  kj::ArrayOutputStream logBufStream(logBuf);
+  mcm::luacat::Main main(ctx, discardStdout, logBufStream);
+  ASSERT_PRED1(isValidOption, main.addIncludePath("?.lua;foo?.lua"));
+  kj::ArrayInputStream scriptStream(kj::StringPtr("print(package.path)\n").asBytes());
+  capnp::MallocMessageBuilder message;
+  main.process(message, "=(load)", scriptStream);
+
+  auto outArray = logBufStream.getArray();
+  auto outString = kj::heapString(reinterpret_cast<char*>(outArray.begin()), outArray.size());
+  ASSERT_EQ("?.lua;foo?.lua\n", outString);
+}
+
+TEST(MainTest, AddIncludePathCombinesWithSemicolon) {
+  FakeProcessContext ctx;
+  DiscardOutputStream discardStdout;
+  auto logBuf = kj::heapArray<kj::byte>(logBufMax);
+  kj::ArrayOutputStream logBufStream(logBuf);
+  mcm::luacat::Main main(ctx, discardStdout, logBufStream);
+  ASSERT_PRED1(isValidOption, main.addIncludePath("?.lua"));
+  ASSERT_PRED1(isValidOption, main.addIncludePath("foo?.lua"));
+  kj::ArrayInputStream scriptStream(kj::StringPtr("print(package.path)\n").asBytes());
+  capnp::MallocMessageBuilder message;
+  main.process(message, "=(load)", scriptStream);
+
+  auto outArray = logBufStream.getArray();
+  auto outString = kj::heapString(reinterpret_cast<char*>(outArray.begin()), outArray.size());
+  ASSERT_EQ("?.lua;foo?.lua\n", outString);
+}
+
+TEST(MainTest, FallbackPathIsAtEndOfIncludes) {
+  FakeProcessContext ctx;
+  DiscardOutputStream discardStdout;
+  auto logBuf = kj::heapArray<kj::byte>(logBufMax);
+  kj::ArrayOutputStream logBufStream(logBuf);
+  mcm::luacat::Main main(ctx, discardStdout, logBufStream);
+  main.setFallbackIncludePath("bar?.lua;baz?.lua");
+  ASSERT_PRED1(isValidOption, main.addIncludePath("?.lua"));
+  ASSERT_PRED1(isValidOption, main.addIncludePath("foo?.lua"));
+  kj::ArrayInputStream scriptStream(kj::StringPtr("print(package.path)\n").asBytes());
+  capnp::MallocMessageBuilder message;
+  main.process(message, "=(load)", scriptStream);
+
+  auto outArray = logBufStream.getArray();
+  auto outString = kj::heapString(reinterpret_cast<char*>(outArray.begin()), outArray.size());
+  ASSERT_EQ("?.lua;foo?.lua;bar?.lua;baz?.lua\n", outString);
 }

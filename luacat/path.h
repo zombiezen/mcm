@@ -16,6 +16,7 @@
 #define MCM_LUACAT_PATH_H_
 // Path manipulation routines.
 
+#include "kj/array.h"
 #include "kj/common.h"
 #include "kj/string.h"
 #include "kj/string-tree.h"
@@ -48,6 +49,9 @@ kj::StringTree joinPath(const First& first, Rest&&... rest) {
 
   return _::joinPath(kj::strTree(first), kj::fwd<Rest>(rest)...);
 }
+
+kj::Array<kj::ArrayPtr<const char>> splitStr(kj::StringPtr s, char delim);
+// Split a string by a given delimiter.
 
 }  // namespace luacat
 }  // namespace mcm

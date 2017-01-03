@@ -19,6 +19,7 @@
 #include "kj/io.h"
 #include "kj/main.h"
 #include "kj/string.h"
+#include "kj/string-tree.h"
 #include "capnp/message.h"
 
 extern "C" {
@@ -34,6 +35,14 @@ public:
   Main(kj::ProcessContext& context, kj::OutputStream& outStream, kj::OutputStream& logStream);
   KJ_DISALLOW_COPY(Main);
 
+  void setFallbackIncludePath(kj::StringPtr include);
+  // Sets the include path (usually from the environment) to
+  // consult at the end of any other added include paths.  Default is
+  // empty string.
+
+  kj::MainBuilder::Validity addIncludePath(kj::StringPtr include);
+  // Add a new include path in the Lua semicolon-separated question mark pattern.
+
   kj::MainBuilder::Validity processFile(kj::StringPtr src);
 
   void process(capnp::MessageBuilder& out, kj::StringPtr chunkName, kj::InputStream& stream);
@@ -42,9 +51,14 @@ public:
   kj::MainFunc getMain();
 
 private:
+  kj::String buildIncludePath(kj::StringPtr chunkName);
+
   kj::ProcessContext& context;
   kj::OutputStream& outStream;
   kj::OutputStream& logStream;
+
+  kj::StringTree includes;
+  kj::String fallbackInclude;
 };
 
 class OwnState {

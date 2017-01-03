@@ -45,6 +45,15 @@ namespace {
     {NULL, NULL}
   };
 
+  bool isValidLuaInclude(const kj::ArrayPtr<const char> path) {
+    for (char c: path) {
+      if (c == '?') {
+        return true;
+      }
+    }
+    return false;
+  }
+
   int printfunc(lua_State *state) {
     // Customized implementation of print().
     // We could customize this in vendored copy, but this keeps the
@@ -77,6 +86,40 @@ namespace {
 
 Main::Main(kj::ProcessContext& context, kj::OutputStream& outStream, kj::OutputStream& logStream):
     context(context), outStream(outStream), logStream(logStream) {
+}
+
+void Main::setFallbackIncludePath(kj::StringPtr include) {
+  if (include.size() == 0) {
+    fallbackInclude = kj::heapString(include);
+    return;
+  }
+  auto parts = splitStr(include, ';');
+  kj::StringTree cleaned;
+  for (auto part: parts) {
+    if (!isValidLuaInclude(part)) {
+      continue;
+    }
+    if (cleaned.size() > 0) {
+      cleaned = kj::strTree(kj::mv(cleaned), ";");
+    }
+    cleaned = kj::strTree(kj::mv(cleaned), part);
+  }
+  fallbackInclude = cleaned.flatten();
+}
+
+kj::MainBuilder::Validity Main::addIncludePath(kj::StringPtr include) {
+  auto parts = splitStr(include, ';');
+  for (auto part: parts) {
+    if (!isValidLuaInclude(part)) {
+      return kj::str("path '", part, "' does not include a '?' wildcard");
+    }
+  }
+  if (includes.size() == 0) {
+    includes = kj::strTree(include);
+    return true;
+  }
+  includes = kj::strTree(kj::mv(includes), ";", include);
+  return true;
 }
 
 kj::MainBuilder::Validity Main::processFile(kj::StringPtr src) {
@@ -121,18 +164,13 @@ void Main::process(capnp::MessageBuilder& message, kj::StringPtr chunkName, kj::
   lua_pop(state, 1);
 
   // Set package.path
-  lua_getglobal(state, "package");
-  if (chunkName.size() >= 1 && chunkName[0] == '@') {
-    // Actual file name
-    auto srcDir = dirName(chunkName.slice(1));
-    auto luaPath = kj::str(joinPath(srcDir, "?.lua"), ";", joinPath(srcDir, "?", "init.lua"));
-    pushLua(state, luaPath);
-  } else {
-    // Not a real file (testing).
-    pushLua(state, "");
+  {
+    auto inc = buildIncludePath(chunkName);
+    lua_getglobal(state, "package");
+    pushLua(state, inc);
+    lua_setfield(state, -2, "path");
+    lua_pop(state, 1);
   }
-  lua_setfield(state, -2, "path");
-  lua_pop(state, 1);
 
   // Run script
   if (luaLoad(state, chunkName, stream) || lua_pcall(state, 0, 0, 0)) {
@@ -151,8 +189,32 @@ void Main::process(capnp::MessageBuilder& message, kj::StringPtr chunkName, kj::
   }
 }
 
+kj::String Main::buildIncludePath(kj::StringPtr chunkName) {
+  kj::StringTree tree;
+  if (chunkName.startsWith("@")) {
+    // Actual file name; add containing directory.
+    auto srcDir = dirName(chunkName.slice(1));
+    tree = kj::strTree(joinPath(srcDir, "?.lua"), ";", joinPath(srcDir, "?", "init.lua"));
+  }
+  if (includes.size() > 0) {
+    if (tree.size() > 0) {
+      tree = kj::strTree(kj::mv(tree), ";");
+    }
+    tree = kj::strTree(kj::mv(tree), includes.flatten());
+  }
+  if (fallbackInclude.size() > 0) {
+    if (tree.size() > 0) {
+      tree = kj::strTree(kj::mv(tree), ";");
+    }
+    tree = kj::strTree(kj::mv(tree), fallbackInclude);
+  }
+  return tree.flatten();
+}
+
 kj::MainFunc Main::getMain() {
   return kj::MainBuilder(context, "mcm-luacat", "Interprets Lua source and generates an mcm catalog.")
+      .addOptionWithArg({'I'}, KJ_BIND_METHOD(*this, addIncludePath),
+          "<templates>", "Add a package path template in package.searchpath format.")
       .expectArg("FILE", KJ_BIND_METHOD(*this, processFile))
       .build();
 }

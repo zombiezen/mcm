@@ -5,11 +5,22 @@ Build a catalog from a Lua script.
 ## Usage
 
 ```
-mcm-luacat FILE
+mcm-luacat [-I PATTERN [...]] FILE
 ```
 
 The `FILE` argument is a Lua script that is executed.
 At the end of the script's execution, the catalog is written to stdout as binary Cap'n Proto data.
+
+### `require` Search Path
+
+The script's containing directory is added to `package.path`, specifically as `DIR/?.lua;DIR/?/init.lua`.
+The `-I` flag and the `MCM_LUACAT_PATH` environment variable can be used to add paths to `package.path` beyond the script's directory.
+These arguments are interpreted as in [`package.searchpath`](https://www.lua.org/manual/5.3/manual.html#pdf-package.searchpath) &mdash; semicolon-separated templates containing `?` wildcards.
+The search order is:
+
+1.  Script's directory
+2.  Any include paths added via the `-I` flag
+3.  Any include paths added via the `MCM_LUACAT_PATH` environment variable
 
 ## The `mcm` package
 

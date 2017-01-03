@@ -14,6 +14,19 @@
 
 #include "luacat/path.h"
 
+namespace {
+  template <typename T, typename E>
+  size_t count(T iter, E elem) {
+    size_t n = 0;
+    for (E x: iter) {
+      if (x == elem) {
+        n++;
+      }
+    }
+    return n;
+  }
+}  // namespace
+
 namespace mcm {
 
 namespace luacat {
@@ -24,6 +37,21 @@ kj::String dirName(kj::StringPtr path) {
   } else {
     return kj::heapString(".");
   }
+}
+
+kj::Array<kj::ArrayPtr<const char>> splitStr(kj::StringPtr s, char delim) {
+  auto parts = kj::heapArray<kj::ArrayPtr<const char>>(count(s, delim) + 1);
+  size_t n = 0;
+  size_t last = 0;
+  for (size_t i = 0; i < s.size(); i++) {
+    if (s[i] != delim) {
+      continue;
+    }
+    parts[n++] = s.slice(last, i);
+    last = i + 1;
+  }
+  parts[n] = s.slice(last);
+  return parts;
 }
 
 }  // namespace luacat

@@ -30,6 +30,7 @@ namespace kj {
 
 using mcm::luacat::dirName;
 using mcm::luacat::joinPath;
+using mcm::luacat::splitStr;
 
 TEST(DirNameTest, NameReturnsCurDir) {
   auto dir = dirName("foo");
@@ -67,4 +68,32 @@ TEST(JoinPathTest, ThreeComponentsConcatWithSep) {
 #else
   ASSERT_EQ("foo/bar/baz", kj::str(p));
 #endif
+}
+
+TEST(SplitStrTest, EmptyReturnsOnePart) {
+  auto parts = splitStr("", ';');
+  ASSERT_EQ(1, parts.size());
+  ASSERT_EQ("", kj::str(parts[0]));
+}
+
+TEST(SplitStrTest, NoDelimReturnsOnePart) {
+  auto parts = splitStr("foo", ';');
+  ASSERT_EQ(1, parts.size());
+  ASSERT_EQ("foo", kj::str(parts[0]));
+}
+
+TEST(SplitStrTest, OneDelimReturnsTwoParts) {
+  auto parts = splitStr("foo;bar", ';');
+  ASSERT_EQ(2, parts.size());
+  EXPECT_EQ("foo", kj::str(parts[0]));
+  EXPECT_EQ("bar", kj::str(parts[1]));
+}
+
+TEST(SplitStrTest, EmptyDelimsAtEdges) {
+  auto parts = splitStr(";foo;bar;", ';');
+  ASSERT_EQ(4, parts.size());
+  EXPECT_EQ("", kj::str(parts[0]));
+  EXPECT_EQ("foo", kj::str(parts[1]));
+  EXPECT_EQ("bar", kj::str(parts[2]));
+  EXPECT_EQ("", kj::str(parts[3]));
 }

@@ -84,22 +84,7 @@ namespace {
 
 const int logBufMax = 4096;
 
-TEST(LuaTest, NoExecHasEmptyCatalog) {
-  DiscardOutputStream discardStdout;
-  auto logBuf = kj::heapArray<kj::byte>(logBufMax);
-  kj::ArrayOutputStream logBufStream(logBuf);
-  FakeProcessContext ctx;
-  mcm::luacat::Main main(ctx, discardStdout, logBufStream);
-  capnp::MallocMessageBuilder message;
-
-  NullInputStream script;
-  main.process(message, "=(load)", script);
-
-  auto catalog = message.getRoot<mcm::Catalog>().asReader();
-  ASSERT_EQ(0, catalog.getResources().size());
-}
-
-TEST(LuaTest, TestSuite) {
+TEST(MainTest, TestSuite) {
   for (auto testCase : mcm::luacat::TEST_SUITE->getTests()) {
     SCOPED_TRACE(testCase.getName().cStr());
     DiscardOutputStream discardStdout;

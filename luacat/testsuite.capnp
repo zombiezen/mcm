@@ -77,7 +77,7 @@ const testSuite :TestSuite = (
     (
       name = "empty script",
       script = "",
-      expected = (success = void),
+      expected = (catalog = (resources = [])),
     ),
     (
       name = "hello world",

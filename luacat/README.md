@@ -5,11 +5,11 @@ Build a catalog from a Lua script.
 ## Usage
 
 ```
-mcm-luacat [-I PATTERN [...]] FILE
+mcm-luacat [-o FILE] [-I PATTERN [...]] SCRIPT
 ```
 
-The `FILE` argument is a Lua script that is executed.
-At the end of the script's execution, the catalog is written to stdout as binary Cap'n Proto data.
+The `SCRIPT` argument is the path to a Lua script that is executed.
+At the end of the script's execution, the catalog is written to stdout (or to the file named by the `-o` flag) as binary Cap'n Proto data.
 
 ### `require` Search Path
 

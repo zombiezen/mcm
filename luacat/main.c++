@@ -85,7 +85,7 @@ namespace {
 }  // namespace
 
 Main::Main(kj::ProcessContext& context, kj::OutputStream& outStream, kj::OutputStream& logStream):
-    context(context), outStream(outStream), logStream(logStream) {
+    context(context), outStream(&outStream), logStream(logStream) {
 }
 
 void Main::setFallbackIncludePath(kj::StringPtr include) {
@@ -122,6 +122,15 @@ kj::MainBuilder::Validity Main::addIncludePath(kj::StringPtr include) {
   return true;
 }
 
+kj::MainBuilder::Validity Main::setOutputPath(kj::StringPtr outPath) {
+  int fd;
+  KJ_SYSCALL(fd = open(outPath.cStr(), O_WRONLY | O_CREAT | O_TRUNC, 0666), outPath);
+  kj::AutoCloseFd autoclose(fd);
+  ownOutStream = kj::heap<kj::FdOutputStream>(kj::mv(autoclose));
+  outStream = ownOutStream;
+  return true;
+}
+
 kj::MainBuilder::Validity Main::processFile(kj::StringPtr src) {
   if (src.size() == 0) {
     return kj::str("empty source");
@@ -134,7 +143,7 @@ kj::MainBuilder::Validity Main::processFile(kj::StringPtr src) {
     kj::FdInputStream stream(kj::mv(afd));
     capnp::MallocMessageBuilder message;
     process(message, chunkName, stream);
-    capnp::writeMessage(outStream, message);
+    capnp::writeMessage(*outStream, message);
   });
   KJ_IF_MAYBE(e, maybeExc) {
     context.error(e->getDescription());
@@ -215,6 +224,8 @@ kj::MainFunc Main::getMain() {
   return kj::MainBuilder(context, "mcm-luacat", "Interprets Lua source and generates an mcm catalog.")
       .addOptionWithArg({'I'}, KJ_BIND_METHOD(*this, addIncludePath),
           "<templates>", "Add a package path template in package.searchpath format.")
+      .addOptionWithArg({'o'}, KJ_BIND_METHOD(*this, setOutputPath),
+          "FILE", "Write output to FILE instead of stdout.")
       .expectArg("FILE", KJ_BIND_METHOD(*this, processFile))
       .build();
 }

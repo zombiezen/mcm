@@ -43,6 +43,9 @@ public:
   kj::MainBuilder::Validity addIncludePath(kj::StringPtr include);
   // Add a new include path in the Lua semicolon-separated question mark pattern.
 
+  kj::MainBuilder::Validity setOutputPath(kj::StringPtr outPath);
+  // Open the file at the given path as the new output stream.
+
   kj::MainBuilder::Validity processFile(kj::StringPtr src);
 
   void process(capnp::MessageBuilder& out, kj::StringPtr chunkName, kj::InputStream& stream);
@@ -54,7 +57,8 @@ private:
   kj::String buildIncludePath(kj::StringPtr chunkName);
 
   kj::ProcessContext& context;
-  kj::OutputStream& outStream;
+  kj::OutputStream* outStream;
+  kj::Own<kj::OutputStream> ownOutStream;  // only set if Main creates an output file
   kj::OutputStream& logStream;
 
   kj::StringTree includes;

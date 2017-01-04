@@ -135,6 +135,12 @@ kj::MainBuilder::Validity Main::processFile(kj::StringPtr src) {
   if (src.size() == 0) {
     return kj::str("empty source");
   }
+  auto maybeFdStream = kj::dynamicDowncastIfAvailable<kj::FdOutputStream, kj::OutputStream>(*outStream);
+  KJ_IF_MAYBE(f, maybeFdStream) {
+    if (isatty(f->getFd())) {
+      context.exitError("mcm-luacat: output file is a tty\n\nWriting a binary catalog will likely mess up your terminal. Either\nredirect stdout or use -o.");
+    }
+  }
   auto chunkName = kj::str("@", src);
   auto maybeExc = kj::runCatchingExceptions([&]() {
     int fd;

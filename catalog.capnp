@@ -31,7 +31,7 @@ using ResourceId = UInt64;
 struct Resource {
   id @0 :ResourceId $Go.name("ID");
   # The resource's identifier, used for dependencies.
-  # The identifier should be unique within a catalog.
+  # The identifier should be unique within a catalog and cannot be zero.
 
   comment @1 :Text;
   # An optional human-readable description of the resource for use in

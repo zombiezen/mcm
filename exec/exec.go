@@ -49,6 +49,7 @@ func main() {
 	simulate := flag.Bool("n", false, "dry-run")
 	flag.BoolVar(&log.quiet, "q", false, "suppress info messages and failure output")
 	logCommands := flag.Bool("s", false, "show commands run in the log")
+	flag.IntVar(&app.ConcurrentJobs, "j", 1, "set the maximum number of resources to apply simultaneously")
 	flag.StringVar(&app.Bash, "bash", execlib.DefaultBashPath, "path to bash shell")
 	flag.Parse()
 	if *simulate {

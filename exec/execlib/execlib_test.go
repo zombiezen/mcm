@@ -31,7 +31,11 @@ import (
 )
 
 func TestApplier(t *testing.T) {
-	applytests.Run(t, newFixture)
+	applytests.Run(t, new(fixtureFactory).newFixture)
+}
+
+func TestApplier2Jobs(t *testing.T) {
+	applytests.Run(t, (&fixtureFactory{concurrentJobs: 2}).newFixture)
 }
 
 func TestExecBash(t *testing.T) {
@@ -99,13 +103,18 @@ func TestExecBash(t *testing.T) {
 	}
 }
 
-type fixture struct {
-	sys  *fakesystem.System
-	log  applytests.Logger
-	info *applytests.SystemInfo
+type fixtureFactory struct {
+	concurrentJobs int
 }
 
-func newFixture(ctx context.Context, log applytests.Logger, name string) (applytests.Fixture, error) {
+type fixture struct {
+	sys            *fakesystem.System
+	log            applytests.Logger
+	info           *applytests.SystemInfo
+	concurrentJobs int
+}
+
+func (ff *fixtureFactory) newFixture(ctx context.Context, log applytests.Logger, name string) (applytests.Fixture, error) {
 	sys := new(fakesystem.System)
 	binPath := filepath.Join(fakesystem.Root, "mybin")
 	info := &applytests.SystemInfo{
@@ -152,16 +161,18 @@ func newFixture(ctx context.Context, log applytests.Logger, name string) (applyt
 		return nil, err
 	}
 	return &fixture{
-		sys:  sys,
-		log:  log,
-		info: info,
+		sys:            sys,
+		log:            log,
+		info:           info,
+		concurrentJobs: ff.concurrentJobs,
 	}, nil
 }
 
 func (f *fixture) Apply(ctx context.Context, c catalog.Catalog) error {
 	app := &Applier{
-		System: f.sys,
-		Log:    testLogger{t: f.log},
+		System:         f.sys,
+		Log:            testLogger{t: f.log},
+		ConcurrentJobs: f.concurrentJobs,
 	}
 	return app.Apply(ctx, c)
 }

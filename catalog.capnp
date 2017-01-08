@@ -77,8 +77,21 @@ struct File @0x8dc4ac52b2962163 {
   }
 
   struct Mode {
+    const unset :UInt16 = 0xffff;
+    const permMask :UInt16 = 0x01ff;
+    const sticky :UInt16 = 0x0200;
+    const setuid :UInt16 = 0x0400;
+    const setgid :UInt16 = 0x0800;
+
+    bits @2 :UInt16 = File.Mode.unset;
+    # The Unix mode bits, specified in a system-independent manner using
+    # the constants above.  If the field is the default value, then
+    # don't change the mode.
+
     user @0 :UserRef;
+    # OS owner of the file.  If null, then don't change.
     group @1 :GroupRef;
+    # OS group of the file.  If null, then don't change.
   }
 }
 

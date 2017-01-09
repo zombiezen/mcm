@@ -35,6 +35,7 @@ before sending a pull request (this is what the Travis build does).
 For Go code, use `gofmt`.
 
 For C++ code, follow the [KJ Style Guide].
-However, the amount of C++ code is expected to decrease eventually (#30).
+However, the amount of C++ code is expected to decrease eventually ([#30]).
 
 [KJ Style Guide]: https://github.com/sandstorm-io/capnproto/blob/master/style-guide.md
+[#30]: https://github.com/zombiezen/mcm/issues/30

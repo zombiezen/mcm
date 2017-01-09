@@ -29,3 +29,12 @@ before sending a pull request (this is what the Travis build does).
 
 [GitHub Help]: https://help.github.com/articles/about-pull-requests/
 [Travis build]: https://travis-ci.org/zombiezen/mcm
+
+## Code style
+
+For Go code, use `gofmt`.
+
+For C++ code, follow the [KJ Style Guide].
+However, the amount of C++ code is expected to decrease eventually (#30).
+
+[KJ Style Guide]: https://github.com/sandstorm-io/capnproto/blob/master/style-guide.md

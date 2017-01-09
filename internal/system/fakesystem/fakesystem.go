@@ -317,9 +317,15 @@ func (sys *System) Chown(ctx context.Context, path string, uid, gid int) error {
 	if ent == nil {
 		return wrap(os.ErrNotExist)
 	}
-	ent.uid = uid
-	ent.gid = gid
-	ent.modTime = sys.time
+	if uid != -1 {
+		ent.uid = uid
+	}
+	if gid != -1 {
+		ent.gid = gid
+	}
+	if uid != -1 && gid != -1 {
+		ent.modTime = sys.time
+	}
 	return nil
 }
 

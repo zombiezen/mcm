@@ -427,30 +427,44 @@ func TestChmod(t *testing.T) {
 }
 
 func TestChown(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	sys := new(System)
-	path := filepath.Join(Root, "foo")
-	f, err := sys.CreateFile(ctx, path, 0666)
-	if err != nil {
-		t.Fatalf("sys.CreateFile(ctx, %q, 0666): %v", path, err)
+	tests := []struct {
+		name             string
+		uid, gid         int
+		wantUID, wantGID int
+	}{
+		{"OwnerAndGroup", 123, 456, 123, 456},
+		{"Owner", 123, -1, 123, DefaultGID},
+		{"Group", -1, 456, DefaultUID, 456},
+		{"Neither", -1, -1, DefaultUID, DefaultGID},
 	}
-	if err := f.Close(); err != nil {
-		t.Errorf("f.Close(): %v", err)
-	}
-	if err := sys.Chown(ctx, path, 123, 456); err != nil {
-		t.Errorf("sys.Chown(ctx, %q, 123, 456): %v", path, err)
-	}
-	info, err := sys.Lstat(ctx, path)
-	if err != nil {
-		t.Fatalf("sys.Lstat(ctx, %q): %v", path, err)
-	}
-	uid, gid, err := sys.OwnerInfo(info)
-	if err != nil {
-		t.Fatalf("sys.OwnerInfo(sys.Lstat(ctx, %q)): %v", path, err)
-	}
-	if uid != 123 || gid != 456 {
-		t.Errorf("sys.OwnerInfo(sys.Lstat(ctx, %q)) = %d, %d, nil; want 123, 456, nil", path, uid, gid)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			sys := new(System)
+			path := filepath.Join(Root, "foo")
+			f, err := sys.CreateFile(ctx, path, 0666)
+			if err != nil {
+				t.Fatalf("sys.CreateFile(ctx, %q, 0666): %v", path, err)
+			}
+			if err := f.Close(); err != nil {
+				t.Errorf("f.Close(): %v", err)
+			}
+			if err := sys.Chown(ctx, path, test.uid, test.gid); err != nil {
+				t.Errorf("sys.Chown(ctx, %q, 123, 456): %v", path, err)
+			}
+			info, err := sys.Lstat(ctx, path)
+			if err != nil {
+				t.Fatalf("sys.Lstat(ctx, %q): %v", path, err)
+			}
+			uid, gid, err := sys.OwnerInfo(info)
+			if err != nil {
+				t.Fatalf("sys.OwnerInfo(sys.Lstat(ctx, %q)): %v", path, err)
+			}
+			if uid != test.wantUID || gid != test.wantGID {
+				t.Errorf("sys.OwnerInfo(sys.Lstat(ctx, %q)) = %d, %d, nil; want %d, %d, nil", path, uid, gid, test.wantUID, test.wantGID)
+			}
+		})
 	}
 }
 

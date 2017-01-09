@@ -116,6 +116,26 @@ func (l sysLogger) Symlink(ctx context.Context, oldname, newname string) error {
 	return l.System.Symlink(ctx, oldname, newname)
 }
 
+func (l sysLogger) Chmod(ctx context.Context, path string, mode os.FileMode) error {
+	m := uint32(mode & os.ModePerm)
+	if mode&os.ModeSticky != 0 {
+		m |= 01000
+	}
+	if mode&os.ModeSetgid != 0 {
+		m |= 02000
+	}
+	if mode&os.ModeSetuid != 0 {
+		m |= 04000
+	}
+	l.log.Infof(ctx, "chmod %4o %s", m, path)
+	return l.System.Chmod(ctx, path, mode)
+}
+
+func (l sysLogger) Chown(ctx context.Context, path string, uid, gid int) error {
+	l.log.Infof(ctx, "chown %d:%d %s", uid, gid, path)
+	return l.System.Chown(ctx, path, uid, gid)
+}
+
 func (l sysLogger) CreateFile(ctx context.Context, path string, mode os.FileMode) (system.FileWriter, error) {
 	l.log.Infof(ctx, "create file %s", path)
 	return l.System.CreateFile(ctx, path, mode)
@@ -164,6 +184,18 @@ func (simulatedSystem) OpenFile(ctx context.Context, path string) (system.File, 
 		return nil, err
 	}
 	return &readOnlyFile{f: f}, nil
+}
+
+func (simulatedSystem) Chmod(ctx context.Context, path string, mode os.FileMode) error {
+	return nil
+}
+
+func (simulatedSystem) Chown(ctx context.Context, path string, uid, gid int) error {
+	return nil
+}
+
+func (simulatedSystem) OwnerInfo(mode os.FileInfo) (uid, gid int, err error) {
+	return (system.Local{}).OwnerInfo(mode)
 }
 
 func (simulatedSystem) Run(ctx context.Context, cmd *system.Cmd) (output []byte, err error) {

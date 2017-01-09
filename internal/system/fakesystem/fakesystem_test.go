@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -32,11 +33,77 @@ func TestZero(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sys := new(System)
-	if info, err := sys.Lstat(ctx, Root); err != nil {
-		t.Errorf("sys.Lstat(ctx, %q) = _, %v", Root, err)
-	} else if !info.IsDir() || !info.Mode().IsDir() {
+	info, err := sys.Lstat(ctx, Root)
+	if err != nil {
+		t.Fatalf("sys.Lstat(ctx, %q) = _, %v", Root, err)
+	}
+	if !info.IsDir() || !info.Mode().IsDir() {
 		t.Errorf("sys.Lstat(ctx, %q).Mode() = %v, nil; want directory", Root, info.Mode())
 	}
+	if info.Mode()&os.ModePerm != 0777 {
+		t.Errorf("sys.Lstat(ctx, %q).Mode()&os.ModePerm = %v, nil; want rwxrwxrwx", Root, info.Mode()&os.ModePerm)
+	}
+}
+
+func TestCreateFile(t *testing.T) {
+	t.Run("create /foo", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		sys := new(System)
+		path := filepath.Join(Root, "foo")
+		f, err := sys.CreateFile(ctx, path, 0666)
+		if err != nil {
+			t.Fatalf("fs.CreateFile(ctx, %q, 0666): %v", path, err)
+		}
+		const content = "Hello, World!\n"
+		if _, err := io.WriteString(f, content); err != nil {
+			t.Errorf("io.WriteString(f, %q): %v", content, err)
+		}
+		if err := f.Close(); err != nil {
+			t.Errorf("f.Close(): %v", err)
+		}
+		info, err := sys.Lstat(ctx, path)
+		if err != nil {
+			t.Fatalf("sys.Lstat(ctx, %q) = _, %v; want nil", path, err)
+		}
+		if !info.Mode().IsRegular() {
+			t.Errorf("sys.Lstat(ctx, %q).Mode() = %v; want regular", path, info.Mode())
+		}
+		if sz := info.Size(); sz != int64(len(content)) {
+			t.Errorf("sys.Lstat(ctx, %q).Size() = %d; want %d", path, sz, len(content))
+		}
+		uid, gid, err := sys.OwnerInfo(info)
+		if err != nil {
+			t.Fatalf("sys.OwnerInfo(sys.Lstat(ctx, %q)) = _, _, %v; want nil", path, err)
+		}
+		if uid != DefaultUID || gid != DefaultGID {
+			t.Errorf("sys.OwnerInfo(sys.Lstat(ctx, %q)) = %d, %d, nil; want %d, %d", path, uid, gid, DefaultUID, DefaultGID)
+		}
+	})
+	t.Run("create /foo with different modes", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		for i := os.FileMode(0); i <= 0777; i++ {
+			sys := new(System)
+			path := filepath.Join(Root, fmt.Sprintf("foo%#04o", uint32(i)))
+			f, err := sys.CreateFile(ctx, path, i)
+			if err != nil {
+				t.Errorf("fs.CreateFile(ctx, %q, %#04o): %v", path, uint32(i), err)
+				continue
+			}
+			if err := f.Close(); err != nil {
+				t.Errorf("%s: f.Close(): %v", path, err)
+			}
+			info, err := sys.Lstat(ctx, path)
+			if err != nil {
+				t.Errorf("sys.Lstat(ctx, %q): %v", path, err)
+				continue
+			}
+			if perm := info.Mode() & os.ModePerm; perm != i {
+				t.Errorf("sys.Lstat(ctx, %q).Mode()&os.ModePerm = %#04o; want %#04o", path, uint32(perm), uint32(i))
+			}
+		}
+	})
 }
 
 func TestMkdir(t *testing.T) {
@@ -48,10 +115,19 @@ func TestMkdir(t *testing.T) {
 		if err := mkdir(ctx, t, sys, dirpath); err != nil {
 			t.Error(err)
 		}
-		if info, err := sys.Lstat(ctx, dirpath); err != nil {
-			t.Errorf("sys.Lstat(ctx, %q) = _, %v; want nil", dirpath, err)
-		} else if !info.IsDir() {
+		info, err := sys.Lstat(ctx, dirpath)
+		if err != nil {
+			t.Fatalf("sys.Lstat(ctx, %q) = _, %v; want nil", dirpath, err)
+		}
+		if !info.IsDir() {
 			t.Errorf("sys.Lstat(ctx, %q).Mode() = %v; want directory", dirpath, info.Mode())
+		}
+		uid, gid, err := sys.OwnerInfo(info)
+		if err != nil {
+			t.Fatalf("sys.OwnerInfo(sys.Lstat(ctx, %q)) = _, _, %v; want nil", dirpath, err)
+		}
+		if uid != DefaultUID || gid != DefaultGID {
+			t.Errorf("sys.OwnerInfo(sys.Lstat(ctx, %q)) = %d, %d, nil; want %d, %d", dirpath, uid, gid, DefaultUID, DefaultGID)
 		}
 	})
 	t.Run("mkdir /foo; mkdir /foo/bar", func(t *testing.T) {
@@ -70,6 +146,29 @@ func TestMkdir(t *testing.T) {
 			t.Errorf("sys.Lstat(ctx, %q) = _, %v; want nil", dirpath2, err)
 		} else if !info.IsDir() {
 			t.Errorf("sys.Lstat(ctx, %q).Mode() = %v; want directory", dirpath2, info.Mode())
+		}
+	})
+	t.Run("mkdir /foo with different modes", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		for i := os.FileMode(0); i <= 0777; i++ {
+			sys := new(System)
+			dirpath := filepath.Join(Root, fmt.Sprintf("foo%#04o", uint32(i)))
+			if err := sys.Mkdir(ctx, dirpath, i); err != nil {
+				fmt.Errorf("sys.Mkdir(ctx, %q, %#04o): %v", dirpath, uint32(i), err)
+				continue
+			}
+			info, err := sys.Lstat(ctx, dirpath)
+			if err != nil {
+				t.Errorf("sys.Lstat(ctx, %q) = _, %v; want nil", dirpath, err)
+				continue
+			}
+			if !info.IsDir() {
+				t.Errorf("sys.Lstat(ctx, %q).Mode() = %v; want directory", dirpath, info.Mode())
+			}
+			if perm := info.Mode() & os.ModePerm; perm != i {
+				t.Errorf("sys.Lstat(ctx, %q).Mode()&os.ModePerm = %#04o; want %04o", dirpath, uint32(perm), uint32(i))
+			}
 		}
 	})
 }
@@ -225,6 +324,134 @@ func TestSymlink(t *testing.T) {
 			t.Errorf("ioutil.ReadAll(sys.OpenFile(ctx, %q)) = %q; want %q", lfpath, content, fileContent)
 		}
 	})
+}
+
+func TestChmod(t *testing.T) {
+	const modeCount = 0777 * 8
+	modeAt := func(i int) os.FileMode {
+		m := os.FileMode(i & 0777)
+		if i&01000 != 0 {
+			m |= os.ModeSticky
+		}
+		if i&02000 != 0 {
+			m |= os.ModeSetuid
+		}
+		if i&04000 != 0 {
+			m |= os.ModeSetgid
+		}
+		return m
+	}
+	t.Run("File", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		for i := 0; i < modeCount; i++ {
+			mode := modeAt(i)
+			sys := new(System)
+			path := filepath.Join(Root, fmt.Sprintf("foo_%v", mode))
+			f, err := sys.CreateFile(ctx, path, 0)
+			if err != nil {
+				t.Errorf("sys.CreateFile(ctx, %q, 0): %v", path, err)
+				continue
+			}
+			if err := f.Close(); err != nil {
+				t.Errorf("%s: f.Close(): %v", path, err)
+			}
+			if err := sys.Chmod(ctx, path, mode); err != nil {
+				t.Errorf("sys.Chmod(ctx, %q, %v): %v", path, mode, err)
+			}
+			info, err := sys.Lstat(ctx, path)
+			if err != nil {
+				t.Errorf("sys.Lstat(ctx, %q): %v", path, err)
+				continue
+			}
+			if got := info.Mode() & (os.ModePerm | os.ModeSticky | os.ModeSetuid | os.ModeSetgid); got != mode {
+				t.Errorf("sys.Lstat(ctx, %q).Mode()&ugtrwxrwxrwx = %v; want %v", path, got, mode)
+			}
+		}
+	})
+	t.Run("Directory", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		for i := 0; i < modeCount; i++ {
+			mode := modeAt(i)
+			sys := new(System)
+			path := filepath.Join(Root, fmt.Sprintf("foo_%v", mode))
+			if err := sys.Mkdir(ctx, path, 0); err != nil {
+				t.Errorf("sys.Mkdir(ctx, %q, 0): %v", path, err)
+				continue
+			}
+			if err := sys.Chmod(ctx, path, mode); err != nil {
+				t.Errorf("sys.Chmod(ctx, %q, %v): %v", path, mode, err)
+			}
+			info, err := sys.Lstat(ctx, path)
+			if err != nil {
+				t.Errorf("sys.Lstat(ctx, %q): %v", path, err)
+				continue
+			}
+			if !info.Mode().IsDir() {
+				t.Errorf("sys.Lstat(ctx, %q).Mode().IsDir() = false", path)
+			}
+			if got := info.Mode() & (os.ModePerm | os.ModeSticky | os.ModeSetuid | os.ModeSetgid); got != mode {
+				t.Errorf("sys.Lstat(ctx, %q).Mode()&ugtrwxrwxrwx = %v; want %v", path, got, mode)
+			}
+		}
+	})
+	t.Run("Link", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		sys := new(System)
+		fpath := filepath.Join(Root, "foo")
+		lpath := filepath.Join(Root, "bar")
+		f, err := sys.CreateFile(ctx, fpath, 0)
+		if err != nil {
+			t.Fatalf("sys.CreateFile(ctx, %q, 0): %v", fpath, err)
+		}
+		if err := f.Close(); err != nil {
+			t.Errorf("%s: f.Close(): %v", fpath, err)
+		}
+		if err := sys.Symlink(ctx, fpath, lpath); err != nil {
+			t.Fatalf("sys.Symlink(ctx, %q, %q): %v", fpath, lpath, err)
+		}
+		const want = os.ModePerm | os.ModeSticky | os.ModeSetuid | os.ModeSetgid
+		if err := sys.Chmod(ctx, lpath, want); err != nil {
+			t.Errorf("sys.Chmod(ctx, %q, %v): %v", lpath, want, err)
+		}
+		info, err := sys.Lstat(ctx, fpath)
+		if err != nil {
+			t.Fatalf("sys.Lstat(ctx, %q): %v", fpath, err)
+		}
+		if got := info.Mode() & (os.ModePerm | os.ModeSticky | os.ModeSetuid | os.ModeSetgid); got != want {
+			t.Errorf("sys.Lstat(ctx, %q).Mode()&ugtrwxrwxrwx = %v; want %v", fpath, got, want)
+		}
+	})
+}
+
+func TestChown(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sys := new(System)
+	path := filepath.Join(Root, "foo")
+	f, err := sys.CreateFile(ctx, path, 0666)
+	if err != nil {
+		t.Fatalf("sys.CreateFile(ctx, %q, 0666): %v", path, err)
+	}
+	if err := f.Close(); err != nil {
+		t.Errorf("f.Close(): %v", err)
+	}
+	if err := sys.Chown(ctx, path, 123, 456); err != nil {
+		t.Errorf("sys.Chown(ctx, %q, 123, 456): %v", path, err)
+	}
+	info, err := sys.Lstat(ctx, path)
+	if err != nil {
+		t.Fatalf("sys.Lstat(ctx, %q): %v", path, err)
+	}
+	uid, gid, err := sys.OwnerInfo(info)
+	if err != nil {
+		t.Fatalf("sys.OwnerInfo(sys.Lstat(ctx, %q)): %v", path, err)
+	}
+	if uid != 123 || gid != 456 {
+		t.Errorf("sys.OwnerInfo(sys.Lstat(ctx, %q)) = %d, %d, nil; want 123, 456, nil", path, uid, gid)
+	}
 }
 
 func TestRun(t *testing.T) {

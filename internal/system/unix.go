@@ -16,5 +16,20 @@
 
 package system
 
+import (
+	"errors"
+	"os"
+	"syscall"
+)
+
 // LocalRoot is Local's root filesystem path.
 const LocalRoot = "/"
+
+// OwnerInfo attempts to retrieve a file's uid and gid from info.Sys().
+func (Local) OwnerInfo(info os.FileInfo) (uid, gid int, err error) {
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, 0, errors.New("file info has no uid/gid fields")
+	}
+	return int(st.Uid), int(st.Gid), nil
+}

@@ -33,6 +33,12 @@ import (
 
 const Root = system.LocalRoot
 
+// Default IDs for created filesystem entries.
+const (
+	DefaultUID = 1000
+	DefaultGID = 2000
+)
+
 var epoch = time.Date(2016, time.November, 24, 0, 0, 0, 0, time.UTC)
 
 // System is an in-memory implementation of FS and Runner.
@@ -57,6 +63,8 @@ type ProgramContext struct {
 
 type entry struct {
 	mode    os.FileMode
+	uid     int
+	gid     int
 	modTime time.Time
 	content []byte
 	program Program
@@ -134,6 +142,8 @@ func (sys *System) Lstat(ctx context.Context, path string) (os.FileInfo, error) 
 		mode:    ent.mode,
 		modTime: ent.modTime,
 		size:    len(ent.content),
+		uid:     ent.uid,
+		gid:     ent.gid,
 	}, nil
 }
 
@@ -157,6 +167,8 @@ func (sys *System) mkentry(path string, mode os.FileMode) (*entry, error) {
 	ent := &entry{
 		mode:    mode,
 		modTime: sys.time,
+		uid:     DefaultUID,
+		gid:     DefaultGID,
 	}
 	sys.fs[path] = ent
 	return ent, nil
@@ -267,6 +279,56 @@ func (sys *System) Readlink(ctx context.Context, path string) (string, error) {
 		return "", wrap(errors.New("fake system: not a symlink"))
 	}
 	return ent.link, nil
+}
+
+func (sys *System) Chmod(ctx context.Context, path string, mode os.FileMode) error {
+	const mask = os.ModePerm | os.ModeSticky | os.ModeSetuid | os.ModeSetgid
+	wrap := pathErrorFunc("chmod", path)
+	path, err := cleanPath(path)
+	if err != nil {
+		return wrap(err)
+	}
+
+	defer sys.mu.Unlock()
+	defer sys.stepTime()
+	sys.mu.Lock()
+	sys.init()
+	ent := sys.fs[sys.resolve(path)]
+	if ent == nil {
+		return wrap(os.ErrNotExist)
+	}
+	ent.mode = (ent.mode &^ mask) | (mode & mask)
+	ent.modTime = sys.time
+	return nil
+}
+
+func (sys *System) Chown(ctx context.Context, path string, uid, gid int) error {
+	wrap := pathErrorFunc("chown", path)
+	path, err := cleanPath(path)
+	if err != nil {
+		return wrap(err)
+	}
+
+	defer sys.mu.Unlock()
+	defer sys.stepTime()
+	sys.mu.Lock()
+	sys.init()
+	ent := sys.fs[sys.resolve(path)]
+	if ent == nil {
+		return wrap(os.ErrNotExist)
+	}
+	ent.uid = uid
+	ent.gid = gid
+	ent.modTime = sys.time
+	return nil
+}
+
+func (sys *System) OwnerInfo(info os.FileInfo) (uid, gid int, err error) {
+	s, ok := info.Sys().(*stat)
+	if !ok {
+		return 0, 0, errors.New("file info not from fakesystem")
+	}
+	return s.uid, s.gid, nil
 }
 
 func (sys *System) readdir(path string) []string {
@@ -528,6 +590,8 @@ type stat struct {
 	mode    os.FileMode
 	modTime time.Time
 	size    int
+	uid     int
+	gid     int
 }
 
 func (s *stat) Name() string       { return s.name }
@@ -535,6 +599,6 @@ func (s *stat) Size() int64        { return int64(s.size) }
 func (s *stat) Mode() os.FileMode  { return s.mode }
 func (s *stat) ModTime() time.Time { return s.modTime }
 func (s *stat) IsDir() bool        { return s.mode.IsDir() }
-func (s *stat) Sys() interface{}   { return nil }
+func (s *stat) Sys() interface{}   { return s }
 
 var errClosed = errors.New("fake file: closed")

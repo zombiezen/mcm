@@ -42,6 +42,10 @@ type FS interface {
 	Symlink(ctx context.Context, oldname, newname string) error
 	Readlink(ctx context.Context, path string) (string, error)
 
+	Chmod(ctx context.Context, path string, mode os.FileMode) error
+	Chown(ctx context.Context, path string, uid, gid int) error
+	OwnerInfo(info os.FileInfo) (uid, gid int, err error)
+
 	// CreateFile creates the named file, returning an error if it already exists.
 	CreateFile(ctx context.Context, path string, mode os.FileMode) (FileWriter, error)
 
@@ -142,6 +146,18 @@ func (Stub) Symlink(ctx context.Context, oldname, newname string) error {
 
 func (Stub) Readlink(ctx context.Context, path string) (string, error) {
 	return "", &os.PathError{Op: "readlink", Path: path, Err: errNotImplemented}
+}
+
+func (Stub) Chmod(ctx context.Context, path string, mode os.FileMode) error {
+	return &os.PathError{Op: "chmod", Path: path, Err: errNotImplemented}
+}
+
+func (Stub) Chown(ctx context.Context, path string, uid, gid int) error {
+	return &os.PathError{Op: "chown", Path: path, Err: errNotImplemented}
+}
+
+func (Stub) OwnerInfo(os.FileInfo) (uid, gid int, err error) {
+	return 0, 0, errNotImplemented
 }
 
 func (Stub) CreateFile(ctx context.Context, path string, mode os.FileMode) (FileWriter, error) {

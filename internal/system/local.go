@@ -50,6 +50,16 @@ func (Local) Readlink(ctx context.Context, path string) (string, error) {
 	return os.Readlink(path)
 }
 
+// Chmod calls os.Chmod.
+func (Local) Chmod(ctx context.Context, path string, mode os.FileMode) error {
+	return os.Chmod(path, mode)
+}
+
+// Chown calls os.Chown.
+func (Local) Chown(ctx context.Context, path string, uid, gid int) error {
+	return os.Chown(path, uid, gid)
+}
+
 // CreateFile calls os.OpenFile with write-only and exclusive create flags.
 func (Local) CreateFile(ctx context.Context, path string, mode os.FileMode) (FileWriter, error) {
 	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)

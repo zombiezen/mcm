@@ -29,6 +29,7 @@ import (
 // System consists of the top-level interfaces in this package.
 type System interface {
 	FS
+	UserLookup
 	Runner
 }
 
@@ -67,6 +68,13 @@ type File interface {
 type FileWriter interface {
 	io.Writer
 	io.Closer
+}
+
+// UserLookup provides user database lookups.  A UserLookup
+// implementation must be safe to call from multiple goroutines.
+type UserLookup interface {
+	LookupUser(name string) (UID, error)
+	LookupGroup(name string) (GID, error)
 }
 
 // UID is a user ID.
@@ -172,6 +180,14 @@ func (Stub) CreateFile(ctx context.Context, path string, mode os.FileMode) (File
 
 func (Stub) OpenFile(ctx context.Context, path string) (File, error) {
 	return nil, &os.PathError{Op: "open", Path: path, Err: errNotImplemented}
+}
+
+func (Stub) LookupUser(name string) (UID, error) {
+	return 0, errNotImplemented
+}
+
+func (Stub) LookupGroup(name string) (GID, error) {
+	return 0, errNotImplemented
 }
 
 func (Stub) Run(ctx context.Context, cmd *Cmd) (output []byte, err error) {

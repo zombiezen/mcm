@@ -198,6 +198,14 @@ func (simulatedSystem) OwnerInfo(mode os.FileInfo) (system.UID, system.GID, erro
 	return (system.Local{}).OwnerInfo(mode)
 }
 
+func (simulatedSystem) LookupUser(name string) (system.UID, error) {
+	return (system.Local{}).LookupUser(name)
+}
+
+func (simulatedSystem) LookupGroup(name string) (system.GID, error) {
+	return (system.Local{}).LookupGroup(name)
+}
+
 func (simulatedSystem) Run(ctx context.Context, cmd *system.Cmd) (output []byte, err error) {
 	return nil, nil
 }

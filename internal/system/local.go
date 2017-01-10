@@ -16,8 +16,11 @@ package system
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
+	"strconv"
 )
 
 // Local implements FS and Runner by calling to the os package.
@@ -68,6 +71,32 @@ func (Local) CreateFile(ctx context.Context, path string, mode os.FileMode) (Fil
 // OpenFile calls os.OpenFile with read-write.
 func (Local) OpenFile(ctx context.Context, path string) (File, error) {
 	return os.OpenFile(path, os.O_RDWR, 0666)
+}
+
+// LookupUser calls os/user.Lookup.
+func (Local) LookupUser(name string) (UID, error) {
+	u, err := user.Lookup(name)
+	if err != nil {
+		return 0, err
+	}
+	id, err := strconv.ParseInt(u.Uid, 10, 0)
+	if err != nil {
+		return 0, fmt.Errorf("parse uid %q: %v", u.Uid, err)
+	}
+	return UID(id), nil
+}
+
+// LookupGroup calls os/user.LookupGroup.
+func (Local) LookupGroup(name string) (GID, error) {
+	g, err := user.LookupGroup(name)
+	if err != nil {
+		return 0, err
+	}
+	id, err := strconv.ParseInt(g.Gid, 10, 0)
+	if err != nil {
+		return 0, fmt.Errorf("parse gid %q: %v", g.Gid, err)
+	}
+	return GID(id), nil
 }
 
 // Run runs a process using os/exec and returns the combined stdout and stderr.

@@ -403,6 +403,30 @@ func (sys *System) Mkprogram(path string, prog Program) error {
 	return nil
 }
 
+// LookupUser returns a user ID for either "root" or "user".
+func (sys *System) LookupUser(name string) (system.UID, error) {
+	switch name {
+	case "root":
+		return 0, nil
+	case "user":
+		return DefaultUID, nil
+	default:
+		return 0, fmt.Errorf("user %s not found", name)
+	}
+}
+
+// LookupGroup returns a group ID for either "root" or "group".
+func (sys *System) LookupGroup(name string) (system.GID, error) {
+	switch name {
+	case "root":
+		return 0, nil
+	case "group":
+		return DefaultGID, nil
+	default:
+		return 0, fmt.Errorf("group %s not found", name)
+	}
+}
+
 func (sys *System) Run(ctx context.Context, cmd *system.Cmd) (output []byte, err error) {
 	wrap := pathErrorFunc("exec", cmd.Path)
 	path, err := cleanPath(cmd.Path)

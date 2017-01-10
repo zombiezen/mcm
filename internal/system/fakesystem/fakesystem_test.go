@@ -428,9 +428,11 @@ func TestChmod(t *testing.T) {
 
 func TestChown(t *testing.T) {
 	tests := []struct {
-		name             string
-		uid, gid         int
-		wantUID, wantGID int
+		name    string
+		uid     system.UID
+		gid     system.GID
+		wantUID system.UID
+		wantGID system.GID
 	}{
 		{"OwnerAndGroup", 123, 456, 123, 456},
 		{"Owner", 123, -1, 123, DefaultGID},

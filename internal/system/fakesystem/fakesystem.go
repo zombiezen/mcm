@@ -35,8 +35,8 @@ const Root = system.LocalRoot
 
 // Default IDs for created filesystem entries.
 const (
-	DefaultUID = 1000
-	DefaultGID = 2000
+	DefaultUID system.UID = 1000
+	DefaultGID system.GID = 2000
 )
 
 var epoch = time.Date(2016, time.November, 24, 0, 0, 0, 0, time.UTC)
@@ -63,8 +63,8 @@ type ProgramContext struct {
 
 type entry struct {
 	mode    os.FileMode
-	uid     int
-	gid     int
+	uid     system.UID
+	gid     system.GID
 	modTime time.Time
 	content []byte
 	program Program
@@ -302,7 +302,7 @@ func (sys *System) Chmod(ctx context.Context, path string, mode os.FileMode) err
 	return nil
 }
 
-func (sys *System) Chown(ctx context.Context, path string, uid, gid int) error {
+func (sys *System) Chown(ctx context.Context, path string, uid system.UID, gid system.GID) error {
 	wrap := pathErrorFunc("chown", path)
 	path, err := cleanPath(path)
 	if err != nil {
@@ -329,7 +329,7 @@ func (sys *System) Chown(ctx context.Context, path string, uid, gid int) error {
 	return nil
 }
 
-func (sys *System) OwnerInfo(info os.FileInfo) (uid, gid int, err error) {
+func (sys *System) OwnerInfo(info os.FileInfo) (system.UID, system.GID, error) {
 	s, ok := info.Sys().(*stat)
 	if !ok {
 		return 0, 0, errors.New("file info not from fakesystem")
@@ -596,8 +596,8 @@ type stat struct {
 	mode    os.FileMode
 	modTime time.Time
 	size    int
-	uid     int
-	gid     int
+	uid     system.UID
+	gid     system.GID
 }
 
 func (s *stat) Name() string       { return s.name }

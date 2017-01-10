@@ -43,8 +43,8 @@ type FS interface {
 	Readlink(ctx context.Context, path string) (string, error)
 
 	Chmod(ctx context.Context, path string, mode os.FileMode) error
-	Chown(ctx context.Context, path string, uid, gid int) error
-	OwnerInfo(info os.FileInfo) (uid, gid int, err error)
+	Chown(ctx context.Context, path string, uid UID, gid GID) error
+	OwnerInfo(info os.FileInfo) (UID, GID, error)
 
 	// CreateFile creates the named file, returning an error if it already exists.
 	CreateFile(ctx context.Context, path string, mode os.FileMode) (FileWriter, error)
@@ -68,6 +68,12 @@ type FileWriter interface {
 	io.Writer
 	io.Closer
 }
+
+// UID is a user ID.
+type UID int
+
+// GID is a group ID.
+type GID int
 
 // A Runner runs processes.  A Runner must be safe to call from
 // multiple goroutines.
@@ -152,11 +158,11 @@ func (Stub) Chmod(ctx context.Context, path string, mode os.FileMode) error {
 	return &os.PathError{Op: "chmod", Path: path, Err: errNotImplemented}
 }
 
-func (Stub) Chown(ctx context.Context, path string, uid, gid int) error {
+func (Stub) Chown(ctx context.Context, path string, uid UID, gid GID) error {
 	return &os.PathError{Op: "chown", Path: path, Err: errNotImplemented}
 }
 
-func (Stub) OwnerInfo(os.FileInfo) (uid, gid int, err error) {
+func (Stub) OwnerInfo(os.FileInfo) (UID, GID, error) {
 	return 0, 0, errNotImplemented
 }
 

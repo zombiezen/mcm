@@ -56,8 +56,8 @@ func (Local) Chmod(ctx context.Context, path string, mode os.FileMode) error {
 }
 
 // Chown calls os.Chown.
-func (Local) Chown(ctx context.Context, path string, uid, gid int) error {
-	return os.Chown(path, uid, gid)
+func (Local) Chown(ctx context.Context, path string, uid UID, gid GID) error {
+	return os.Chown(path, int(uid), int(gid))
 }
 
 // CreateFile calls os.OpenFile with write-only and exclusive create flags.

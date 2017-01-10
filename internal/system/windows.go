@@ -25,6 +25,6 @@ import (
 const LocalRoot = "C:\\"
 
 // OwnerInfo attempts to retrieve a file's uid and gid from info.Sys().
-func (Local) OwnerInfo(os.FileInfo) (uid, gid int, err error) {
+func (Local) OwnerInfo(os.FileInfo) (UID, GID, error) {
 	return 0, 0, errors.New("uid/gid not supported on windows")
 }

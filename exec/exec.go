@@ -131,7 +131,7 @@ func (l sysLogger) Chmod(ctx context.Context, path string, mode os.FileMode) err
 	return l.System.Chmod(ctx, path, mode)
 }
 
-func (l sysLogger) Chown(ctx context.Context, path string, uid, gid int) error {
+func (l sysLogger) Chown(ctx context.Context, path string, uid system.UID, gid system.GID) error {
 	l.log.Infof(ctx, "chown %d:%d %s", uid, gid, path)
 	return l.System.Chown(ctx, path, uid, gid)
 }
@@ -190,11 +190,11 @@ func (simulatedSystem) Chmod(ctx context.Context, path string, mode os.FileMode)
 	return nil
 }
 
-func (simulatedSystem) Chown(ctx context.Context, path string, uid, gid int) error {
+func (simulatedSystem) Chown(ctx context.Context, path string, uid system.UID, gid system.GID) error {
 	return nil
 }
 
-func (simulatedSystem) OwnerInfo(mode os.FileInfo) (uid, gid int, err error) {
+func (simulatedSystem) OwnerInfo(mode os.FileInfo) (system.UID, system.GID, error) {
 	return (system.Local{}).OwnerInfo(mode)
 }
 

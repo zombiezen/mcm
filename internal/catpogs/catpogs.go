@@ -55,9 +55,12 @@ type File struct {
 	Which catalog.File_Which
 	Plain struct {
 		Content []byte
+		Mode    *FileMode
 	}
-	Directory struct{}
-	Symlink   struct {
+	Directory struct {
+		Mode *FileMode
+	}
+	Symlink struct {
 		Target string
 	}
 }
@@ -78,6 +81,49 @@ func SymlinkFile(oldname, newname string) *File {
 	}
 	f.Symlink.Target = oldname
 	return f
+}
+
+type FileMode struct {
+	Bits  uint16
+	User  *UserRef
+	Group *GroupRef
+}
+
+// FileMode.Bits constants.
+const (
+	ModeUnset  = catalog.File_Mode_unset
+	ModePerm   = catalog.File_Mode_permMask
+	ModeSticky = catalog.File_Mode_sticky
+	ModeSetuid = catalog.File_Mode_setuid
+	ModeSetgid = catalog.File_Mode_setgid
+)
+
+type UserRef struct {
+	Which catalog.UserRef_Which
+	ID    int32 `capnp:"id"`
+	Name  string
+}
+
+func UserIDRef(uid int) *UserRef {
+	return &UserRef{Which: catalog.UserRef_Which_ID, ID: int32(uid)}
+}
+
+func UserNameRef(name string) *UserRef {
+	return &UserRef{Which: catalog.UserRef_Which_name, Name: name}
+}
+
+type GroupRef struct {
+	Which catalog.GroupRef_Which
+	ID    int32 `capnp:"id"`
+	Name  string
+}
+
+func GroupIDRef(gid int) *GroupRef {
+	return &GroupRef{Which: catalog.GroupRef_Which_ID, ID: int32(gid)}
+}
+
+func GroupNameRef(name string) *GroupRef {
+	return &GroupRef{Which: catalog.GroupRef_Which_name, Name: name}
 }
 
 type Exec struct {

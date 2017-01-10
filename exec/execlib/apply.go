@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -93,15 +94,15 @@ func (app *Applier) applyPlainFile(ctx context.Context, path string, f catalog.F
 			// TODO(soon): what kind of node it?
 			return false, errorf("%s is not a regular file")
 		}
-		return false, nil
+		mode, _ := f.Mode()
+		return app.applyFileModeWithInfo(ctx, path, info, mode)
 	}
 
 	content, err := f.Content()
 	if err != nil {
 		return false, errorf("read content from catalog: %v", err)
 	}
-	// TODO(soon): respect file mode
-	w, err := app.System.CreateFile(ctx, path, 0666)
+	w, err := app.System.CreateFile(ctx, path, 0666) // rely on umask to restrict
 	if os.IsExist(err) {
 		f, err := app.System.OpenFile(ctx, path)
 		if err != nil {
@@ -136,7 +137,9 @@ func (app *Applier) applyPlainFile(ctx context.Context, path string, f catalog.F
 	if cerr != nil {
 		return false, cerr
 	}
-	return true, nil
+	mode, _ := f.Mode()
+	_, err = app.applyFileMode(ctx, path, mode)
+	return true, err
 }
 
 func hasContent(r io.Reader, content []byte) (bool, error) {
@@ -179,10 +182,11 @@ func (er *errReader) Read(p []byte) (n int, _ error) {
 }
 
 func (app *Applier) applyDirectory(ctx context.Context, path string, d catalog.File_directory) (changed bool, err error) {
-	// TODO(soon): respect file mode
-	err = app.System.Mkdir(ctx, path, 0777)
+	err = app.System.Mkdir(ctx, path, 0777) // rely on umask to restrict
 	if err == nil {
-		return true, nil
+		mode, _ := d.Mode()
+		_, err = app.applyFileMode(ctx, path, mode)
+		return true, err
 	}
 	if !os.IsExist(err) {
 		return false, err
@@ -196,7 +200,8 @@ func (app *Applier) applyDirectory(ctx context.Context, path string, d catalog.F
 		// TODO(soon): what kind of node it?
 		return false, errorf("%s is not a directory", path)
 	}
-	return false, nil
+	mode, _ := d.Mode()
+	return app.applyFileModeWithInfo(ctx, path, info, mode)
 }
 
 func (app *Applier) applySymlink(ctx context.Context, path string, l catalog.File_symlink) (changed bool, err error) {
@@ -235,6 +240,135 @@ func (app *Applier) applySymlink(ctx context.Context, path string, l catalog.Fil
 		return false, errorf("retargeting %s: %v", path, err)
 	}
 	return true, nil
+}
+
+func (app *Applier) applyFileMode(ctx context.Context, path string, mode catalog.File_Mode) (changed bool, err error) {
+	// TODO(someday): avoid the extra capnp read, since WithInfo also accesses these fields.
+	bits := mode.Bits()
+	user, _ := mode.User()
+	group, _ := mode.Group()
+	if bits == catalog.File_Mode_unset && isZeroUserRef(user) && isZeroGroupRef(group) {
+		return false, nil
+	}
+	st, err := app.System.Lstat(ctx, path)
+	if err != nil {
+		return false, err
+	}
+	return app.applyFileModeWithInfo(ctx, path, st, mode)
+}
+
+func (app *Applier) applyFileModeWithInfo(ctx context.Context, path string, st os.FileInfo, mode catalog.File_Mode) (changed bool, err error) {
+	bits := mode.Bits()
+	user, _ := mode.User()
+	group, _ := mode.Group()
+	changedBits, err := app.applyFileModeBits(ctx, path, st, bits)
+	if err != nil {
+		return false, err
+	}
+	changedOwner, err := app.applyFileModeOwner(ctx, path, st, user, group)
+	if err != nil {
+		return false, err
+	}
+	return changedBits || changedOwner, nil
+}
+
+func (app *Applier) applyFileModeBits(ctx context.Context, path string, info os.FileInfo, bits uint16) (changed bool, err error) {
+	if bits == catalog.File_Mode_unset {
+		return false, nil
+	}
+	newMode := modeFromCatalog(bits)
+	const mask = os.ModePerm | os.ModeSticky | os.ModeSetuid | os.ModeSetgid
+	if info.Mode()&mask == newMode {
+		return false, nil
+	}
+	if err := app.System.Chmod(ctx, path, newMode); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (app *Applier) applyFileModeOwner(ctx context.Context, path string, info os.FileInfo, user catalog.UserRef, group catalog.GroupRef) (changed bool, err error) {
+	uid, err := resolveUserRef(&app.userLookup, user)
+	if err != nil {
+		return false, errorf("resolve user: %v", err)
+	}
+	gid, err := resolveGroupRef(&app.userLookup, group)
+	if err != nil {
+		return false, errorf("resolve group: %v", err)
+	}
+	if uid == -1 && gid == -1 {
+		return false, nil
+	}
+	if oldUID, oldGID, err := app.System.OwnerInfo(info); err != nil {
+		// TODO(now): which resource?
+		app.Log.Infof(ctx, "reading file owner: %v; assuming need to chown", err)
+	} else if (uid == -1 || oldUID == uid) && (gid == -1 || oldGID == gid) {
+		return false, nil
+	}
+	if err := app.System.Chown(ctx, path, uid, gid); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func resolveUserRef(lookup system.UserLookup, ref catalog.UserRef) (system.UID, error) {
+	switch ref.Which() {
+	case catalog.UserRef_Which_ID:
+		id := ref.ID()
+		if id < -1 {
+			return -1, fmt.Errorf("invalid uid %d", id)
+		}
+		return system.UID(id), nil
+	case catalog.UserRef_Which_name:
+		name, err := ref.Name()
+		if err != nil {
+			return -1, err
+		}
+		return lookup.LookupUser(name)
+	default:
+		return -1, fmt.Errorf("unhandled user ref type %v", ref.Which())
+	}
+}
+
+func resolveGroupRef(lookup system.UserLookup, ref catalog.GroupRef) (system.GID, error) {
+	switch ref.Which() {
+	case catalog.GroupRef_Which_ID:
+		id := ref.ID()
+		if id < -1 {
+			return -1, fmt.Errorf("invalid gid %d", id)
+		}
+		return system.GID(id), nil
+	case catalog.GroupRef_Which_name:
+		name, err := ref.Name()
+		if err != nil {
+			return -1, err
+		}
+		return lookup.LookupGroup(name)
+	default:
+		return -1, fmt.Errorf("unhandled group ref type %v", ref.Which())
+	}
+}
+
+func isZeroUserRef(ref catalog.UserRef) bool {
+	return ref.Which() == catalog.UserRef_Which_ID && ref.ID() == -1
+}
+
+func isZeroGroupRef(ref catalog.GroupRef) bool {
+	return ref.Which() == catalog.GroupRef_Which_ID && ref.ID() == -1
+}
+
+func modeFromCatalog(cmode uint16) os.FileMode {
+	m := os.FileMode(cmode & catalog.File_Mode_permMask)
+	if cmode&catalog.File_Mode_sticky != 0 {
+		m |= os.ModeSticky
+	}
+	if cmode&catalog.File_Mode_setuid != 0 {
+		m |= os.ModeSetuid
+	}
+	if cmode&catalog.File_Mode_setgid != 0 {
+		m |= os.ModeSetgid
+	}
+	return m
 }
 
 func (app *Applier) applyExec(ctx context.Context, e catalog.Exec, depsChanged map[uint64]bool) (changed bool, err error) {

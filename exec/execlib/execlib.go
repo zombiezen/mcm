@@ -41,6 +41,9 @@ type Applier struct {
 	// ConcurrentJobs is the number of resources to apply simultaneously.
 	// If non-positive, then it assumes 1.
 	ConcurrentJobs int
+
+	// TODO(someday): pass this down as an argument
+	userLookup userLookupCache
 }
 
 // Logger collects execution messages from an Applier.  A Logger must be
@@ -56,6 +59,7 @@ func (app *Applier) Apply(ctx context.Context, c catalog.Catalog) error {
 	if err != nil {
 		return toError(err)
 	}
+	app.userLookup = userLookupCache{lookup: app.System}
 	if err = app.applyCatalog(ctx, g); err != nil {
 		return toError(err)
 	}
@@ -254,6 +258,57 @@ func (app *Applier) worker(ctx context.Context, results chan<- applyResult, ch <
 			return
 		}
 	}
+}
+
+// TODO(someday): ensure lookups are single-flight
+
+type userLookupCache struct {
+	lookup system.UserLookup
+
+	mu     sync.RWMutex
+	users  map[string]system.UID
+	groups map[string]system.GID
+}
+
+func (c *userLookupCache) LookupUser(name string) (system.UID, error) {
+	c.mu.RLock()
+	uid, ok := c.users[name]
+	c.mu.RUnlock()
+	if ok {
+		return uid, nil
+	}
+
+	uid, err := c.lookup.LookupUser(name)
+	if err != nil {
+		return uid, err
+	}
+	c.mu.Lock()
+	if c.users == nil {
+		c.users = make(map[string]system.UID)
+	}
+	c.users[name] = uid
+	c.mu.Unlock()
+	return uid, nil
+}
+
+func (c *userLookupCache) LookupGroup(name string) (system.GID, error) {
+	c.mu.RLock()
+	gid, ok := c.groups[name]
+	c.mu.RUnlock()
+	if ok {
+		return gid, nil
+	}
+	gid, err := c.lookup.LookupGroup(name)
+	if err != nil {
+		return gid, err
+	}
+	c.mu.Lock()
+	if c.groups == nil {
+		c.groups = make(map[string]system.GID)
+	}
+	c.groups[name] = gid
+	c.mu.Unlock()
+	return gid, nil
 }
 
 func formatResource(r catalog.Resource) string {

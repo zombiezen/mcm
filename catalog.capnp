@@ -99,7 +99,7 @@ struct UserRef {
   # A reference to a OS user.
 
   union {
-    id @0 :Int32;
+    id @0 :Int32 = -1 $Go.name("ID");
     name @1 :Text;
   }
 }
@@ -108,7 +108,7 @@ struct GroupRef {
   # A reference to an OS group.
 
   union {
-    id @0 :Int32;
+    id @0 :Int32 = -1 $Go.name("ID");
     name @1 :Text;
   }
 }

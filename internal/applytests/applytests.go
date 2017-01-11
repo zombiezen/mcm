@@ -66,6 +66,7 @@ type SystemInfo struct {
 func Run(t *testing.T, ff FixtureFunc) {
 	t.Run("Empty", func(t *testing.T) { emptyTest(t, ff) })
 	t.Run("File", func(t *testing.T) { fileTest(t, ff) })
+	t.Run("Directory", func(t *testing.T) { dirTest(t, ff) })
 	t.Run("FileMode", func(t *testing.T) { fileModeTest(t, ff) })
 	t.Run("Noop", func(t *testing.T) { noopTest(t, ff) })
 	t.Run("NoContentFile", func(t *testing.T) { noContentFileTest(t, ff) })
@@ -136,6 +137,37 @@ func fileTest(t *testing.T, ff FixtureFunc) {
 	}
 	if !bytes.Equal(gotContent, []byte(fileContent)) {
 		t.Errorf("content of %s = %q; want %q", fpath, gotContent, fileContent)
+	}
+}
+
+func dirTest(t *testing.T, ff FixtureFunc) {
+	ctx, f, done := startTest(t, ff, "directory")
+	defer done()
+
+	path := filepath.Join(f.SystemInfo().Root, "foo")
+	c, err := (&catpogs.Catalog{
+		Resources: []*catpogs.Resource{
+			{
+				ID:      42,
+				Comment: "file",
+				Which:   catalog.Resource_Which_file,
+				File:    catpogs.Directory(path, nil),
+			},
+		},
+	}).ToCapnp()
+	if err != nil {
+		t.Fatalf("build catalog: %v", err)
+	}
+	err = f.Apply(ctx, c)
+	if err != nil {
+		t.Errorf("run catalog: %v", err)
+	}
+	info, err := f.System().Lstat(ctx, path)
+	if err != nil {
+		t.Fatalf("Lstat(%q): %v", path, err)
+	}
+	if !info.IsDir() {
+		t.Errorf("Lstat(%q).Mode() = %v; want directory", path, info.Mode())
 	}
 }
 

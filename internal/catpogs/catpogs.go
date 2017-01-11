@@ -74,6 +74,15 @@ func PlainFile(path string, content []byte) *File {
 	return f
 }
 
+func Directory(path string, mode *FileMode) *File {
+	f := &File{
+		Path:  path,
+		Which: catalog.File_Which_directory,
+	}
+	f.Directory.Mode = mode
+	return f
+}
+
 func SymlinkFile(oldname, newname string) *File {
 	f := &File{
 		Path:  newname,

@@ -174,39 +174,70 @@ func dirTest(t *testing.T, ff FixtureFunc) {
 func fileModeTest(t *testing.T, ff FixtureFunc) {
 	t.Skip("Not implemented yet, see issue #4")
 
-	ctx, f, done := startTest(t, ff, "fileMode")
-	defer done()
-
-	fpath := filepath.Join(f.SystemInfo().Root, "foo.bash")
-	const fileContent = "#!/bin/bash\necho 'Hello, World!'\n"
-	fileRes := catpogs.PlainFile(fpath, []byte(fileContent))
-	fileRes.Plain.Mode = &catpogs.FileMode{
-		Bits: 0775,
-	}
-	c, err := (&catpogs.Catalog{
-		Resources: []*catpogs.Resource{
-			{
-				ID:      42,
-				Comment: "file",
-				Which:   catalog.Resource_Which_file,
-				File:    fileRes,
+	t.Run("File", func(t *testing.T) {
+		ctx, f, done := startTest(t, ff, "fileMode")
+		defer done()
+		fpath := filepath.Join(f.SystemInfo().Root, "foo.bash")
+		const fileContent = "#!/bin/bash\necho 'Hello, World!'\n"
+		fileRes := catpogs.PlainFile(fpath, []byte(fileContent))
+		fileRes.Plain.Mode = &catpogs.FileMode{
+			Bits: 0775,
+		}
+		c, err := (&catpogs.Catalog{
+			Resources: []*catpogs.Resource{
+				{
+					ID:      42,
+					Comment: "file",
+					Which:   catalog.Resource_Which_file,
+					File:    fileRes,
+				},
 			},
-		},
-	}).ToCapnp()
-	if err != nil {
-		t.Fatalf("build catalog: %v", err)
-	}
-	err = f.Apply(ctx, c)
-	if err != nil {
-		t.Errorf("run catalog: %v", err)
-	}
-	info, err := f.System().Lstat(ctx, fpath)
-	if err != nil {
-		t.Fatalf("Lstat(%q): %v", fpath, err)
-	}
-	if got := info.Mode() & os.ModePerm; got != 0775 {
-		t.Errorf("Lstat(%q).Mode()&os.ModePerm = %v; want %v", fpath, got, os.FileMode(0775))
-	}
+		}).ToCapnp()
+		if err != nil {
+			t.Fatalf("build catalog: %v", err)
+		}
+		err = f.Apply(ctx, c)
+		if err != nil {
+			t.Errorf("run catalog: %v", err)
+		}
+		info, err := f.System().Lstat(ctx, fpath)
+		if err != nil {
+			t.Fatalf("Lstat(%q): %v", fpath, err)
+		}
+		if got := info.Mode() & os.ModePerm; got != 0775 {
+			t.Errorf("Lstat(%q).Mode()&os.ModePerm = %v; want %v", fpath, got, os.FileMode(0775))
+		}
+	})
+	t.Run("Dir", func(t *testing.T) {
+		ctx, f, done := startTest(t, ff, "dirMode")
+		defer done()
+		const want = 0757
+		path := filepath.Join(f.SystemInfo().Root, "foo")
+		c, err := (&catpogs.Catalog{
+			Resources: []*catpogs.Resource{
+				{
+					ID:      42,
+					Comment: "directory",
+					Which:   catalog.Resource_Which_file,
+					File:    catpogs.Directory(path, &catpogs.FileMode{Bits: want}),
+				},
+			},
+		}).ToCapnp()
+		if err != nil {
+			t.Fatalf("build catalog: %v", err)
+		}
+		err = f.Apply(ctx, c)
+		if err != nil {
+			t.Errorf("run catalog: %v", err)
+		}
+		info, err := f.System().Lstat(ctx, path)
+		if err != nil {
+			t.Fatalf("Lstat(%q): %v", path, err)
+		}
+		if got := info.Mode() & os.ModePerm; got != want {
+			t.Errorf("Lstat(%q).Mode()&os.ModePerm = %v; want %v", path, got, os.FileMode(want))
+		}
+	})
 }
 
 func noopTest(t *testing.T, ff FixtureFunc) {

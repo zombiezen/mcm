@@ -51,6 +51,7 @@ func WriteScript(w io.Writer, c catalog.Catalog) error {
 			return fmt.Errorf("resource ID=%d: %v", r.ID(), err)
 		}
 	}
+	g.supportLib()
 	g.p(script("_() {"))
 	g.in()
 	for i := 0; i < res.Len(); i++ {
@@ -85,6 +86,55 @@ func WriteScript(w io.Writer, c catalog.Catalog) error {
 	g.p(script("}"))
 	g.p(script(`_ "$0" "$@"`))
 	return g.ew.err
+}
+
+func (g *gen) supportLib() {
+	// usage: setmode PATH MODE OWNER GROUP
+	// Any one of MODE, OWNER, or GROUP can be omitted by passing "".
+	// MODE must be an octal string with a leading zero.  OWNER and GROUP
+	// denote a numeric ID by prefixing with ":".  stdout will be empty if
+	// something changed, "noop" otherwise.
+	// TODO(darwin): stat command is different.
+	if g.needsSetmode {
+		g.literal(`setmode() {
+	local changed=0
+	if [[ ! -z "$2" ]]; then
+		local currmode
+		currmode="0$(stat -c '%a' "$1")"
+		[[ $? -eq 0 ]] || return 1
+		if [[ "$currmode" -ne "$2" ]]; then
+			chmod "$2" "$1" && changed=1 || return 1
+		fi
+	fi
+	local newowner="$3"
+	local newgroup="$4"
+	if [[ ! -z "$newowner" || ! -z "$newgroup" ]]; then
+		local currowner
+		if [[ "$newowner" = :* ]]; then
+			newowner="${newowner:1}"
+			currowner="$(stat -c '%u' "$1")"
+			[[ $? -eq 0 ]] || return 1
+		elif [[ ! -z "$newowner" ]]; then
+			currowner="$(stat -c '%U' "$1")"
+			[[ $? -eq 0 ]] || return 1
+		fi
+		local currgroup
+		if [[ "$newgroup" = :* ]]; then
+			newgroup="${newgroup:1}"
+			currgroup="$(stat -c '%g' "$1")"
+			[[ $? -eq 0 ]] || return 1
+		elif [[ ! -z "$newgroup" ]]; then
+			currgroup="$(stat -c '%G' "$1")"
+			[[ $? -eq 0 ]] || return 1
+		fi
+		if [[ "$currowner" != "$newowner" || "$currgroup" != "$newgroup" ]]; then
+			chown "${newowner}:${newgroup}" "$1" && changed=1 || return 1
+		fi
+	fi
+	[[ $changed -ne 0 ]] || echo "noop"
+	return 0
+}`)
+	}
 }
 
 func resourceStatusVar(id uint64) script {

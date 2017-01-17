@@ -20,11 +20,13 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 )
 
 type gen struct {
-	ew     errWriter
-	indent int
+	ew           errWriter
+	indent       int
+	needsSetmode bool
 }
 
 func newGen(w io.Writer) *gen {
@@ -59,6 +61,32 @@ func (g *gen) p(args ...interface{}) {
 	}
 	buf = append(buf, '\n')
 	g.ew.Write(buf)
+}
+
+// literal writes a literal chunk into the output.
+func (g *gen) literal(chunk script) {
+	if g.indent == 0 {
+		g.ew.WriteString(string(chunk))
+		if !strings.HasSuffix(string(chunk), "\n") {
+			g.ew.Write(newline)
+		}
+		return
+	}
+	indent := make([]byte, g.indent)
+	for i := range indent {
+		indent[i] = '\t'
+	}
+	for len(chunk) > 0 {
+		g.ew.Write(indent)
+		i := strings.IndexRune(string(chunk), '\n')
+		if i == -1 {
+			g.ew.WriteString(string(chunk))
+			g.ew.Write(newline)
+			break
+		}
+		g.ew.WriteString(string(chunk[:i]))
+		chunk = chunk[i+1:]
+	}
 }
 
 func appendPArg(buf []byte, a interface{}) []byte {

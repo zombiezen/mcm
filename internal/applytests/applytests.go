@@ -208,6 +208,43 @@ func fileModeTest(t *testing.T, ff FixtureFunc) {
 			t.Errorf("Lstat(%q).Mode()&os.ModePerm = %v; want %v", fpath, got, os.FileMode(0775))
 		}
 	})
+	t.Run("FileJustMode", func(t *testing.T) {
+		ctx, f, done := startTest(t, ff, "fileJustMode")
+		defer done()
+		fpath := filepath.Join(f.SystemInfo().Root, "foo.bash")
+		const fileContent = "#!/bin/bash\necho 'Hello, World!'\n"
+		fileRes := catpogs.PlainFile(fpath, []byte(fileContent))
+		fileRes.Plain.Mode = &catpogs.FileMode{
+			Bits: 0775,
+		}
+		c, err := (&catpogs.Catalog{
+			Resources: []*catpogs.Resource{
+				{
+					ID:      42,
+					Comment: "file",
+					Which:   catalog.Resource_Which_file,
+					File:    fileRes,
+				},
+			},
+		}).ToCapnp()
+		if err != nil {
+			t.Fatalf("build catalog: %v", err)
+		}
+		if err := system.WriteFile(ctx, f.System(), fpath, []byte(fileContent), 0666); err != nil {
+			t.Fatal("WriteFile:", err)
+		}
+		err = f.Apply(ctx, c)
+		if err != nil {
+			t.Errorf("run catalog: %v", err)
+		}
+		info, err := f.System().Lstat(ctx, fpath)
+		if err != nil {
+			t.Fatalf("Lstat(%q): %v", fpath, err)
+		}
+		if got := info.Mode() & os.ModePerm; got != 0775 {
+			t.Errorf("Lstat(%q).Mode()&os.ModePerm = %v; want %v", fpath, got, os.FileMode(0775))
+		}
+	})
 	t.Run("Dir", func(t *testing.T) {
 		ctx, f, done := startTest(t, ff, "dirMode")
 		defer done()

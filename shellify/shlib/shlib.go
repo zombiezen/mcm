@@ -269,111 +269,216 @@ func (g *gen) file(id uint64, f catalog.File) error {
 	if !slashpath.IsAbs(path) {
 		return fmt.Errorf("%s is not an absolute path", path)
 	}
+	g.p(script("local"), assignment{"respath", path})
+
 	switch f.Which() {
 	case catalog.File_Which_plain:
-		g.p(script("if [[ -h"), path, script("]]; then"))
+		g.p(script(`if [[ -h "$respath" ]]; then`))
 		g.in()
-		g.p(script("echo"), path, script("'is not a regular file' 1>&2"))
+		g.p(script(`echo "$respath is not a regular file" 1>&2`))
 		g.returnStatus(id, -1)
 		g.out()
 		g.p(script("fi"))
 
-		if !f.Plain().HasContent() {
-			g.p(script("if [[ ! -f"), path, script("]]; then"))
+		m, _ := f.Plain().Mode()
+		margs, err := modeToArgs(m)
+		if err != nil {
+			return err
+		}
+		switch {
+		case f.Plain().HasContent() && !margs.isEmpty():
+			content, err := f.Plain().Content()
+			if err != nil {
+				return fmt.Errorf("read content from catalog: %v", err)
+			}
+			g.fileContent(id, content)
+
+			// If normal file, then check content for need to replace file.
+			g.p(script("local chcontent=1"))
+			g.p(script(`if [[ -f "$respath" ]]; then`))
 			g.in()
-			g.p(script("echo"), path, script("'is not a regular file' 1>&2"))
+			g.p(script("local cmpresult"))
+			g.p(script(`cmp -s "$tmploc" "$respath"`))
+			g.p(script("cmpresult=$?"))
+			g.p(script("if [[ $cmpresult -eq 0 ]]; then"))
+			g.in()
+			g.p(script(`rm "$tmploc"`))
+			g.p(script("chcontent=0"))
+			g.out()
+			g.p(script("elif [[ $cmpresult -ne 1 ]]; then"))
+			g.in()
+			g.p(script(`rm "$tmploc"`))
+			g.returnStatus(id, -1)
+			g.out()
+			g.p(script("fi"))
+			g.out()
+			// and non-fileness.
+			g.p(script(`elif [[ -e "$respath" ]]; then`))
+			g.in()
+			g.p(script(`echo "$respath is not a regular file" 1>&2`))
+			g.returnStatus(id, -1)
+			g.out()
+			g.p(script("fi"))
+
+			// Replace file if necessary.
+			g.p(script("if [[ $chcontent -eq 1 ]]; then"))
+			g.in()
+			g.p(script(`mv "$tmploc" "$respath"`))
+			g.p(script("local mvfail=$?"))
+			g.p(script(`rm -f "$tmploc"`))
+			g.p(script("if [[ $mvfail -ne 0 ]]; then"))
+			g.in()
+			g.returnStatus(id, -1)
+			g.out()
+			g.p(script("fi"))
+			g.out()
+			g.p(script("fi"))
+
+			// Set file mode.
+			g.needsSetmode = true
+			g.p(script("local modeout"))
+			g.p(assignment{"modeout", script("\"$(") + margs.script(script("\"$respath\"")) + script(")\"")})
+			g.p(script("if [[ $? -ne 0 ]]; then"))
+			g.in()
+			g.returnStatus(id, -1)
+			g.out()
+			g.p(script("fi"))
+			v := resourceStatusVar(id)
+			g.p(script(`[[ $chcontent -eq 1 || "$modeout" != 'noop' ]] &&`), assignment{v, 1}, script("||"), assignment{v, 0})
+			g.p(resourceFuncReturn(id))
+		case f.Plain().HasContent():
+			content, err := f.Plain().Content()
+			if err != nil {
+				return fmt.Errorf("read content from catalog: %v", err)
+			}
+			g.fileContent(id, content)
+
+			// Check for existence...
+			g.p(script(`if [[ ! -e "$respath" ]]; then`))
+			g.in()
+			g.p(script(`mv "$tmploc" "$respath"`), updateStatus(id))
+			g.p(script(`rm -f "$tmploc"`))
+			g.p(resourceFuncReturn(id))
+			g.out()
+			// and non-fileness.
+			g.p(script(`elif [[ ! -f "$respath" ]]; then`))
+			g.in()
+			g.p(script(`echo "$respath is not a regular file" 1>&2`))
+			g.returnStatus(id, -1)
+			g.out()
+			g.p(script("fi"))
+
+			// Compare to what's already there.
+			// If identical, return success.  If comparison fails, abort.
+			g.p(script("local cmpresult"))
+			g.p(script(`cmp -s "$tmploc" "$respath"`))
+			g.p(script("cmpresult=$?"))
+			g.p(script("if [[ $cmpresult -eq 0 ]]; then"))
+			g.in()
+			g.p(script(`rm "$tmploc"`))
+			g.returnStatus(id, 0)
+			g.out()
+			g.p(script("elif [[ $cmpresult -ne 1 ]]; then"))
+			g.in()
+			g.p(script(`rm "$tmploc"`))
+			g.returnStatus(id, -1)
+			g.out()
+			g.p(script("fi"))
+
+			// Replace existing file with new one.
+			g.p(script(`mv "$tmploc" "$respath"`), updateStatus(id))
+			g.p(script(`rm -f "$tmploc"`))
+			g.p(resourceFuncReturn(id))
+		case !margs.isEmpty():
+			g.p(script(`if [[ ! -f "$respath" ]]; then`))
+			g.in()
+			g.p(script(`echo "$respath is not a regular file" 1>&2`))
+			g.returnStatus(id, -1)
+			g.out()
+			g.p(script("fi"))
+
+			g.needsSetmode = true
+			g.p(script("local modeout"))
+			g.p(assignment{"modeout", script("\"$(") + margs.script(script("\"$respath\"")) + script(")\"")})
+			g.p(script("if [[ $? -ne 0 ]]; then"))
+			g.in()
+			g.returnStatus(id, -1)
+			g.out()
+			g.p(script("fi"))
+			v := resourceStatusVar(id)
+			g.p(script(`[[ "$modeout" != 'noop' ]] &&`), assignment{v, 1}, script("||"), assignment{v, 0})
+			g.p(resourceFuncReturn(id))
+		default:
+			g.p(script(`if [[ ! -f "$respath" ]]; then`))
+			g.in()
+			g.p(script(`echo "$respath is not a regular file" 1>&2`))
 			g.returnStatus(id, -1)
 			g.out()
 			g.p(script("fi"))
 			g.returnStatus(id, 0)
-			return nil
 		}
-
-		// Write content to a temporary file
-		// Saves size in resulting script, since base64 is encoded only once.
-		content, err := f.Plain().Content()
-		if err != nil {
-			return fmt.Errorf("read content from catalog: %v", err)
-		}
-		enc := make([]byte, base64.StdEncoding.EncodedLen(len(content)))
-		base64.StdEncoding.Encode(enc, content)
-		g.p(script("local tmploc"))
-		g.p(assignment{"tmploc", script(`"$(mktemp 2>/dev/null || mktemp -t tmp)"`)})
-		g.p(script("if [[ $? -ne 0 ]]; then"))
-		g.in()
-		g.returnStatus(id, -1)
-		g.out()
-		g.p(script("fi"))
-		// TODO(someday): non-binary files could skip base64 decoding.
-		g.p(script(`base64 --decode > "$tmploc"`), heredoc{marker: "!EOF!", data: enc})
-		g.p(script("if [[ $? -ne 0 ]]; then"))
-		g.in()
-		g.p(script(`rm "$tmploc"`))
-		g.returnStatus(id, -1)
-		g.out()
-		g.p(script("fi"))
-
-		// Check for existence...
-		g.p(script("if [[ ! -e"), path, script("]]; then"))
-		g.in()
-		g.p(script(`mv "$tmploc"`), path, updateStatus(id))
-		g.p(script(`rm -f "$tmploc"`))
-		g.p(resourceFuncReturn(id))
-		g.out()
-		// and non-fileness.
-		g.p(script("elif [[ ! -f"), path, script("]]; then"))
-		g.in()
-		g.p(script("echo"), path, script("'is not a regular file' 1>&2"))
-		g.returnStatus(id, -1)
-		g.out()
-		g.p(script("fi"))
-
-		// Compare to what's already there.
-		// If identical, return success.  If comparison fails, abort.
-		g.p(script("local cmpresult"))
-		g.p(script(`cmp -s "$tmploc"`), path)
-		g.p(script("cmpresult=$?"))
-		g.p(script("if [[ $cmpresult -eq 0 ]]; then"))
-		g.in()
-		g.p(script(`rm "$tmploc"`))
-		g.returnStatus(id, 0)
-		g.out()
-		g.p(script("elif [[ $cmpresult -ne 1 ]]; then"))
-		g.in()
-		g.p(script(`rm "$tmploc"`))
-		g.returnStatus(id, -1)
-		g.out()
-		g.p(script("fi"))
-
-		// Replace existing file with new one.
-		g.p(script(`mv "$tmploc"`), path, updateStatus(id))
-		g.p(script(`rm -f "$tmploc"`))
-		g.p(resourceFuncReturn(id))
 	case catalog.File_Which_directory:
-		// TODO(someday): respect file mode
-		g.p(script("if [[ -d"), path, script("]]; then"))
-		g.in()
-		g.returnStatus(id, 0)
-		g.out()
-		g.p(script("fi"))
-		g.p(script("if [[ -e"), path, script("]]; then"))
-		g.in()
-		g.p(script("echo"), path, script("'is not a directory' 1>&2"))
-		g.returnStatus(id, -1)
-		g.out()
-		g.p("fi")
-		g.p(script("mkdir"), path, updateStatus(id))
-		g.p(resourceFuncReturn(id))
+		m, _ := f.Directory().Mode()
+		margs, err := modeToArgs(m)
+		if err != nil {
+			return err
+		}
+
+		if margs.isEmpty() {
+			g.p(script(`if [[ -d "$respath" ]]; then`))
+			g.in()
+			g.returnStatus(id, 0)
+			g.out()
+			g.p(script(`elif [[ -e "$respath" ]]; then`))
+			g.in()
+			g.p(script(`echo "$respath is not a directory" 1>&2`))
+			g.returnStatus(id, -1)
+			g.out()
+			g.p(script("fi"))
+			g.p(script(`mkdir "$respath"`), updateStatus(id))
+			g.p(resourceFuncReturn(id))
+		} else {
+			g.p(script("local needmkdir=1"))
+			g.p(script(`if [[ -d "$respath" ]]; then`))
+			g.in()
+			g.p(script("needmkdir=0"))
+			g.out()
+			g.p(script(`elif [[ -e "$respath" ]]; then`))
+			g.in()
+			g.p(script(`echo "$respath is not a directory" 1>&2`))
+			g.returnStatus(id, -1)
+			g.out()
+			g.p(script("fi"))
+			g.p(script(`mkdir "$respath"`))
+			g.p(script("if [[ $? -ne 0 ]]; then"))
+			g.in()
+			g.returnStatus(id, -1)
+			g.out()
+			g.p(script("fi"))
+
+			g.needsSetmode = true
+			g.p(script("local modeout"))
+			g.p(assignment{"modeout", script("\"$(") + margs.script(script("\"$respath\"")) + script(")\"")})
+			g.p(script("if [[ $? -ne 0 ]]; then"))
+			g.in()
+			g.returnStatus(id, -1)
+			g.out()
+			g.p(script("fi"))
+			v := resourceStatusVar(id)
+			g.p(script(`[[ $needmkdir -eq 1 || "$modeout" != 'noop' ]] &&`), assignment{v, 1}, script("||"), assignment{v, 0})
+			g.p(resourceFuncReturn(id))
+		}
 	case catalog.File_Which_symlink:
 		target, _ := f.Symlink().Target()
 		if target == "" {
 			return errors.New("symlink target is empty")
 		}
-		g.p(script("if [[ -h"), path, script("]]; then"))
+		g.p(script("local"), assignment{"tgt", target})
+		g.p(script(`if [[ -h "$respath" ]]; then`))
 		g.in()
-		g.p(script("if [[ \"$(readlink"), path, script(")\" !="), target, script("]]; then"))
+		g.p(script(`if [[ "$(readlink "$respath")" != "$tgt" ]]; then`))
 		g.in()
-		g.p(script("ln -f -s"), target, path, updateStatus(id))
+		g.p(script(`ln -f -s "$tgt" "$respath"`), updateStatus(id))
 		g.p(resourceFuncReturn(id))
 		g.out()
 		g.p(script("else"))
@@ -384,19 +489,120 @@ func (g *gen) file(id uint64, f catalog.File) error {
 		g.out()
 		g.p(script("fi"))
 
-		g.p(script("if [[ -e"), path, script("]]; then"))
+		g.p(script(`if [[ -e "$respath" ]]; then`))
 		g.in()
-		g.p(script("echo"), path, script("'is not a symlink' 1>&2"))
+		g.p(script(`echo "$respath is not a symlink" 1>&2`))
 		g.returnStatus(id, -1)
 		g.out()
 		g.p(script("fi"))
 
-		g.p(script("ln -s"), target, path, updateStatus(id))
+		g.p(script(`ln -s "$tgt" "$respath"`), updateStatus(id))
 		g.p(resourceFuncReturn(id))
 	default:
 		return fmt.Errorf("unsupported file directive %v", f.Which())
 	}
 	return nil
+}
+
+// fileContent is a macro for writing data to a temporary file.
+// This creates a local variable called "tmploc" that has the path of
+// the new file.
+func (g *gen) fileContent(id uint64, content []byte) {
+	enc := make([]byte, base64.StdEncoding.EncodedLen(len(content)))
+	base64.StdEncoding.Encode(enc, content)
+	g.p(script("local tmploc"))
+	g.p(assignment{"tmploc", script(`"$(mktemp 2>/dev/null || mktemp -t tmp)"`)})
+	g.p(script("if [[ $? -ne 0 ]]; then"))
+	g.in()
+	g.returnStatus(id, -1)
+	g.out()
+	g.p(script("fi"))
+	// TODO(someday): non-binary files could skip base64 decoding.
+	g.p(script(`base64 --decode > "$tmploc"`), heredoc{marker: "!EOF!", data: enc})
+	g.p(script("if [[ $? -ne 0 ]]; then"))
+	g.in()
+	g.p(script(`rm "$tmploc"`))
+	g.returnStatus(id, -1)
+	g.out()
+	g.p(script("fi"))
+}
+
+type setmodeArgs struct {
+	mode  string
+	user  string
+	group string
+}
+
+func (a setmodeArgs) isEmpty() bool {
+	return a == setmodeArgs{}
+}
+
+func (a setmodeArgs) script(path interface{}) script {
+	var buf []byte
+	buf = append(buf, "setmode "...)
+	buf = appendPArg(buf, path)
+	buf = append(buf, ' ')
+	buf = appendPArg(buf, a.mode)
+	buf = append(buf, ' ')
+	buf = appendPArg(buf, a.user)
+	buf = append(buf, ' ')
+	buf = appendPArg(buf, a.group)
+	return script(buf)
+}
+
+func modeToArgs(mode catalog.File_Mode) (setmodeArgs, error) {
+	var args setmodeArgs
+	if mode.Bits() != catalog.File_Mode_unset {
+		args.mode = fmt.Sprintf("%#o", mode.Bits())
+	}
+
+	user, err := mode.User()
+	if err != nil {
+		return setmodeArgs{}, fmt.Errorf("read mode user: %v", err)
+	}
+	switch user.Which() {
+	case catalog.UserRef_Which_ID:
+		id := user.ID()
+		if id < -1 {
+			return setmodeArgs{}, fmt.Errorf("invalid mode user ID %d", id)
+		}
+		if id != -1 {
+			args.user = fmt.Sprintf(":%d", id)
+		}
+	case catalog.UserRef_Which_name:
+		var err error
+		args.user, err = user.Name()
+		if err != nil {
+			return setmodeArgs{}, fmt.Errorf("read mode user: %v", err)
+		}
+	default:
+		return setmodeArgs{}, fmt.Errorf("unknown user ref %v", user.Which())
+	}
+
+	group, err := mode.Group()
+	if err != nil {
+		return setmodeArgs{}, fmt.Errorf("read mode group: %v", err)
+	}
+	switch group.Which() {
+	case catalog.GroupRef_Which_ID:
+		id := group.ID()
+		if id < -1 {
+			return setmodeArgs{}, fmt.Errorf("invalid mode group ID %d", id)
+		}
+		if id != -1 {
+			args.group = fmt.Sprintf(":%d", id)
+		}
+	case catalog.GroupRef_Which_name:
+		var err error
+		args.group, err = group.Name()
+		if err != nil {
+			return setmodeArgs{}, fmt.Errorf("read mode group: %v", err)
+		}
+	default:
+		return setmodeArgs{}, fmt.Errorf("unknown group ref %v", group.Which())
+	}
+
+	return args, nil
 }
 
 func (g *gen) exec(id uint64, e catalog.Exec) error {

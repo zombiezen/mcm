@@ -172,8 +172,6 @@ func dirTest(t *testing.T, ff FixtureFunc) {
 }
 
 func fileModeTest(t *testing.T, ff FixtureFunc) {
-	t.Skip("Not implemented yet, see issue #4")
-
 	t.Run("File", func(t *testing.T) {
 		ctx, f, done := startTest(t, ff, "fileMode")
 		defer done()

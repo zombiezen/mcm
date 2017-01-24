@@ -102,6 +102,19 @@ func (app *Applier) applyPlainFile(ctx context.Context, path string, f catalog.F
 	if err != nil {
 		return false, errorf("read content from catalog: %v", err)
 	}
+	contentChanged, err := app.applyPlainFileContent(ctx, path, content)
+	if err != nil {
+		return false, err
+	}
+	mode, _ := f.Mode()
+	modeChanged, err := app.applyFileMode(ctx, path, mode)
+	if err != nil {
+		return false, err
+	}
+	return contentChanged || modeChanged, nil
+}
+
+func (app *Applier) applyPlainFileContent(ctx context.Context, path string, content []byte) (changed bool, err error) {
 	w, err := app.System.CreateFile(ctx, path, 0666) // rely on umask to restrict
 	if os.IsExist(err) {
 		f, err := app.System.OpenFile(ctx, path)
@@ -137,9 +150,7 @@ func (app *Applier) applyPlainFile(ctx context.Context, path string, f catalog.F
 	if cerr != nil {
 		return false, cerr
 	}
-	mode, _ := f.Mode()
-	_, err = app.applyFileMode(ctx, path, mode)
-	return true, err
+	return true, nil
 }
 
 func hasContent(r io.Reader, content []byte) (bool, error) {

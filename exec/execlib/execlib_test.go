@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package execlib
+package execlib_test
 
 import (
 	"bytes"
@@ -88,12 +88,10 @@ func TestExecBash(t *testing.T) {
 		t.Fatal("Mkprogram:", err)
 	}
 
-	app := &Applier{
-		System: sys,
-		Log:    testLogger{t: t},
-		Bash:   bashPath,
-	}
-	err = app.Apply(ctx, cat)
+	err = Apply(ctx, sys, cat, &Options{
+		Log:  testLogger{t: t},
+		Bash: bashPath,
+	})
 	if err != nil {
 		t.Error("Apply:", err)
 	}
@@ -169,12 +167,10 @@ func (ff *fixtureFactory) newFixture(ctx context.Context, log applytests.Logger,
 }
 
 func (f *fixture) Apply(ctx context.Context, c catalog.Catalog) error {
-	app := &Applier{
-		System:         f.sys,
+	return Apply(ctx, f.sys, c, &Options{
 		Log:            testLogger{t: f.log},
 		ConcurrentJobs: f.concurrentJobs,
-	}
-	return app.Apply(ctx, c)
+	})
 }
 
 func (f *fixture) System() system.System {

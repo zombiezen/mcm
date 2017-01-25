@@ -28,34 +28,65 @@ import (
 	"github.com/zombiezen/mcm/internal/system"
 )
 
-func (app *Applier) applyResource(ctx context.Context, r catalog.Resource, depChanged map[uint64]bool) (changed bool, err error) {
-	switch r.Which() {
+type job struct {
+	sys         system.System
+	log         Logger
+	resource    catalog.Resource
+	depsChanged map[uint64]bool
+
+	bashPath string
+}
+
+type jobResult struct {
+	id      uint64
+	changed bool
+	err     error
+}
+
+func (j *job) run(ctx context.Context) jobResult {
+	result := jobResult{id: j.resource.ID()}
+	switch j.resource.Which() {
 	case catalog.Resource_Which_noop:
-		for _, c := range depChanged {
+		for _, c := range j.depsChanged {
 			if c {
-				changed = true
+				result.changed = true
 				break
 			}
 		}
-		return changed, nil
+		return result
 	case catalog.Resource_Which_file:
-		f, err := r.File()
+		f, err := j.resource.File()
 		if err != nil {
-			return false, err
+			result.err = errorWithResource(j.resource, err)
+			return result
 		}
-		return app.applyFile(ctx, f)
+		changed, err := j.file(ctx, f)
+		if err != nil {
+			result.err = errorWithResource(j.resource, err)
+			return result
+		}
+		result.changed = changed
+		return result
 	case catalog.Resource_Which_exec:
-		e, err := r.Exec()
+		e, err := j.resource.Exec()
 		if err != nil {
-			return false, err
+			result.err = errorWithResource(j.resource, err)
+			return result
 		}
-		return app.applyExec(ctx, e, depChanged)
+		changed, err := j.exec(ctx, e)
+		if err != nil {
+			result.err = errorWithResource(j.resource, err)
+			return result
+		}
+		result.changed = changed
+		return result
 	default:
-		return false, errorf("unknown type %v", r.Which())
+		result.err = errorWithResource(j.resource, errorf("unknown type %v", j.resource.Which()))
+		return result
 	}
 }
 
-func (app *Applier) applyFile(ctx context.Context, f catalog.File) (changed bool, err error) {
+func (j *job) file(ctx context.Context, f catalog.File) (changed bool, err error) {
 	path, err := f.Path()
 	if err != nil {
 		return false, errorf("read file path from catalog: %v", err)
@@ -65,13 +96,13 @@ func (app *Applier) applyFile(ctx context.Context, f catalog.File) (changed bool
 	}
 	switch f.Which() {
 	case catalog.File_Which_plain:
-		return app.applyPlainFile(ctx, path, f.Plain())
+		return j.plainFile(ctx, path, f.Plain())
 	case catalog.File_Which_directory:
-		return app.applyDirectory(ctx, path, f.Directory())
+		return j.directory(ctx, path, f.Directory())
 	case catalog.File_Which_symlink:
-		return app.applySymlink(ctx, path, f.Symlink())
+		return j.symlink(ctx, path, f.Symlink())
 	case catalog.File_Which_absent:
-		err := app.System.Remove(ctx, path)
+		err := j.sys.Remove(ctx, path)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return false, nil
@@ -84,9 +115,9 @@ func (app *Applier) applyFile(ctx context.Context, f catalog.File) (changed bool
 	}
 }
 
-func (app *Applier) applyPlainFile(ctx context.Context, path string, f catalog.File_plain) (changed bool, err error) {
+func (j *job) plainFile(ctx context.Context, path string, f catalog.File_plain) (changed bool, err error) {
 	if !f.HasContent() {
-		info, err := app.System.Lstat(ctx, path)
+		info, err := j.sys.Lstat(ctx, path)
 		if err != nil {
 			return false, err
 		}
@@ -95,29 +126,29 @@ func (app *Applier) applyPlainFile(ctx context.Context, path string, f catalog.F
 			return false, errorf("%s is not a regular file")
 		}
 		mode, _ := f.Mode()
-		return app.applyFileModeWithInfo(ctx, path, info, mode)
+		return j.fileModeWithInfo(ctx, path, info, mode)
 	}
 
 	content, err := f.Content()
 	if err != nil {
 		return false, errorf("read content from catalog: %v", err)
 	}
-	contentChanged, err := app.applyPlainFileContent(ctx, path, content)
+	contentChanged, err := j.plainFileContent(ctx, path, content)
 	if err != nil {
 		return false, err
 	}
 	mode, _ := f.Mode()
-	modeChanged, err := app.applyFileMode(ctx, path, mode)
+	modeChanged, err := j.fileMode(ctx, path, mode)
 	if err != nil {
 		return false, err
 	}
 	return contentChanged || modeChanged, nil
 }
 
-func (app *Applier) applyPlainFileContent(ctx context.Context, path string, content []byte) (changed bool, err error) {
-	w, err := app.System.CreateFile(ctx, path, 0666) // rely on umask to restrict
+func (j *job) plainFileContent(ctx context.Context, path string, content []byte) (changed bool, err error) {
+	w, err := j.sys.CreateFile(ctx, path, 0666) // rely on umask to restrict
 	if os.IsExist(err) {
-		f, err := app.System.OpenFile(ctx, path)
+		f, err := j.sys.OpenFile(ctx, path)
 		if err != nil {
 			return false, err
 		}
@@ -192,18 +223,18 @@ func (er *errReader) Read(p []byte) (n int, _ error) {
 	return n, er.err
 }
 
-func (app *Applier) applyDirectory(ctx context.Context, path string, d catalog.File_directory) (changed bool, err error) {
-	err = app.System.Mkdir(ctx, path, 0777) // rely on umask to restrict
+func (j *job) directory(ctx context.Context, path string, d catalog.File_directory) (changed bool, err error) {
+	err = j.sys.Mkdir(ctx, path, 0777) // rely on umask to restrict
 	if err == nil {
 		mode, _ := d.Mode()
-		_, err = app.applyFileMode(ctx, path, mode)
+		_, err = j.fileMode(ctx, path, mode)
 		return true, err
 	}
 	if !os.IsExist(err) {
 		return false, err
 	}
 	// Ensure that what exists is a directory.
-	info, err := app.System.Lstat(ctx, path)
+	info, err := j.sys.Lstat(ctx, path)
 	if err != nil {
 		return false, errorf("determine state of %s: %v", path, err)
 	}
@@ -212,15 +243,15 @@ func (app *Applier) applyDirectory(ctx context.Context, path string, d catalog.F
 		return false, errorf("%s is not a directory", path)
 	}
 	mode, _ := d.Mode()
-	return app.applyFileModeWithInfo(ctx, path, info, mode)
+	return j.fileModeWithInfo(ctx, path, info, mode)
 }
 
-func (app *Applier) applySymlink(ctx context.Context, path string, l catalog.File_symlink) (changed bool, err error) {
+func (j *job) symlink(ctx context.Context, path string, l catalog.File_symlink) (changed bool, err error) {
 	target, err := l.Target()
 	if err != nil {
 		return false, errorf("read target from catalog: %v", err)
 	}
-	err = app.System.Symlink(ctx, target, path)
+	err = j.sys.Symlink(ctx, target, path)
 	if err == nil {
 		return true, nil
 	}
@@ -228,7 +259,7 @@ func (app *Applier) applySymlink(ctx context.Context, path string, l catalog.Fil
 		return false, err
 	}
 	// Ensure that what exists is a symlink before trying to retarget.
-	info, err := app.System.Lstat(ctx, path)
+	info, err := j.sys.Lstat(ctx, path)
 	if err != nil {
 		return false, errorf("determine state of %s: %v", path, err)
 	}
@@ -236,7 +267,7 @@ func (app *Applier) applySymlink(ctx context.Context, path string, l catalog.Fil
 		// TODO(soon): what kind of node is it?
 		return false, errorf("%s is not a symlink", path)
 	}
-	actual, err := app.System.Readlink(ctx, path)
+	actual, err := j.sys.Readlink(ctx, path)
 	if err != nil {
 		return false, err
 	}
@@ -244,16 +275,16 @@ func (app *Applier) applySymlink(ctx context.Context, path string, l catalog.Fil
 		// Already the correct link.
 		return false, nil
 	}
-	if err := app.System.Remove(ctx, path); err != nil {
+	if err := j.sys.Remove(ctx, path); err != nil {
 		return false, errorf("retargeting %s: %v", path, err)
 	}
-	if err := app.System.Symlink(ctx, target, path); err != nil {
+	if err := j.sys.Symlink(ctx, target, path); err != nil {
 		return false, errorf("retargeting %s: %v", path, err)
 	}
 	return true, nil
 }
 
-func (app *Applier) applyFileMode(ctx context.Context, path string, mode catalog.File_Mode) (changed bool, err error) {
+func (j *job) fileMode(ctx context.Context, path string, mode catalog.File_Mode) (changed bool, err error) {
 	// TODO(someday): avoid the extra capnp read, since WithInfo also accesses these fields.
 	bits := mode.Bits()
 	user, _ := mode.User()
@@ -261,29 +292,29 @@ func (app *Applier) applyFileMode(ctx context.Context, path string, mode catalog
 	if bits == catalog.File_Mode_unset && isZeroUserRef(user) && isZeroGroupRef(group) {
 		return false, nil
 	}
-	st, err := app.System.Lstat(ctx, path)
+	st, err := j.sys.Lstat(ctx, path)
 	if err != nil {
 		return false, err
 	}
-	return app.applyFileModeWithInfo(ctx, path, st, mode)
+	return j.fileModeWithInfo(ctx, path, st, mode)
 }
 
-func (app *Applier) applyFileModeWithInfo(ctx context.Context, path string, st os.FileInfo, mode catalog.File_Mode) (changed bool, err error) {
+func (j *job) fileModeWithInfo(ctx context.Context, path string, st os.FileInfo, mode catalog.File_Mode) (changed bool, err error) {
 	bits := mode.Bits()
 	user, _ := mode.User()
 	group, _ := mode.Group()
-	changedBits, err := app.applyFileModeBits(ctx, path, st, bits)
+	changedBits, err := j.fileModeBits(ctx, path, st, bits)
 	if err != nil {
 		return false, err
 	}
-	changedOwner, err := app.applyFileModeOwner(ctx, path, st, user, group)
+	changedOwner, err := j.fileModeOwner(ctx, path, st, user, group)
 	if err != nil {
 		return false, err
 	}
 	return changedBits || changedOwner, nil
 }
 
-func (app *Applier) applyFileModeBits(ctx context.Context, path string, info os.FileInfo, bits uint16) (changed bool, err error) {
+func (j *job) fileModeBits(ctx context.Context, path string, info os.FileInfo, bits uint16) (changed bool, err error) {
 	if bits == catalog.File_Mode_unset {
 		return false, nil
 	}
@@ -292,31 +323,30 @@ func (app *Applier) applyFileModeBits(ctx context.Context, path string, info os.
 	if info.Mode()&mask == newMode {
 		return false, nil
 	}
-	if err := app.System.Chmod(ctx, path, newMode); err != nil {
+	if err := j.sys.Chmod(ctx, path, newMode); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-func (app *Applier) applyFileModeOwner(ctx context.Context, path string, info os.FileInfo, user catalog.UserRef, group catalog.GroupRef) (changed bool, err error) {
-	uid, err := resolveUserRef(&app.userLookup, user)
+func (j *job) fileModeOwner(ctx context.Context, path string, info os.FileInfo, user catalog.UserRef, group catalog.GroupRef) (changed bool, err error) {
+	uid, err := resolveUserRef(j.sys, user)
 	if err != nil {
 		return false, errorf("resolve user: %v", err)
 	}
-	gid, err := resolveGroupRef(&app.userLookup, group)
+	gid, err := resolveGroupRef(j.sys, group)
 	if err != nil {
 		return false, errorf("resolve group: %v", err)
 	}
 	if uid == -1 && gid == -1 {
 		return false, nil
 	}
-	if oldUID, oldGID, err := app.System.OwnerInfo(info); err != nil {
-		// TODO(now): which resource?
-		app.Log.Infof(ctx, "reading file owner: %v; assuming need to chown", err)
+	if oldUID, oldGID, err := j.sys.OwnerInfo(info); err != nil {
+		j.log.Infof(ctx, "%s: reading file owner: %v; assuming need to chown", formatResource(j.resource), err)
 	} else if (uid == -1 || oldUID == uid) && (gid == -1 || oldGID == gid) {
 		return false, nil
 	}
-	if err := app.System.Chown(ctx, path, uid, gid); err != nil {
+	if err := j.sys.Chown(ctx, path, uid, gid); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -382,8 +412,8 @@ func modeFromCatalog(cmode uint16) os.FileMode {
 	return m
 }
 
-func (app *Applier) applyExec(ctx context.Context, e catalog.Exec, depsChanged map[uint64]bool) (changed bool, err error) {
-	proceed, err := app.evalExecCondition(ctx, e.Condition(), depsChanged)
+func (j *job) exec(ctx context.Context, e catalog.Exec) (changed bool, err error) {
+	proceed, err := j.evalExecCondition(ctx, e.Condition())
 	if err != nil {
 		return false, errorf("condition: %v", err)
 	}
@@ -394,13 +424,13 @@ func (app *Applier) applyExec(ctx context.Context, e catalog.Exec, depsChanged m
 	if err != nil {
 		return false, errorf("command: %v", err)
 	}
-	if err := app.runCommand(ctx, cmd); err != nil {
+	if err := j.runCommand(ctx, cmd); err != nil {
 		return false, errorf("command: %v", err)
 	}
 	return true, nil
 }
 
-func (app *Applier) evalExecCondition(ctx context.Context, cond catalog.Exec_condition, changed map[uint64]bool) (proceed bool, err error) {
+func (j *job) evalExecCondition(ctx context.Context, cond catalog.Exec_condition) (proceed bool, err error) {
 	switch cond.Which() {
 	case catalog.Exec_condition_Which_always:
 		return true, nil
@@ -409,20 +439,20 @@ func (app *Applier) evalExecCondition(ctx context.Context, cond catalog.Exec_con
 		if err != nil {
 			return false, err
 		}
-		return app.runCondition(ctx, c)
+		return j.runCondition(ctx, c)
 	case catalog.Exec_condition_Which_unless:
 		c, err := cond.Unless()
 		if err != nil {
 			return false, err
 		}
-		success, err := app.runCondition(ctx, c)
+		success, err := j.runCondition(ctx, c)
 		if err != nil {
 			return false, err
 		}
 		return !success, nil
 	case catalog.Exec_condition_Which_fileAbsent:
 		path, _ := cond.FileAbsent()
-		_, err := app.System.Lstat(ctx, path)
+		_, err := j.sys.Lstat(ctx, path)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return true, nil
@@ -441,12 +471,12 @@ func (app *Applier) evalExecCondition(ctx context.Context, cond catalog.Exec_con
 		}
 		for i := 0; i < n; i++ {
 			id := deps.At(i)
-			if _, ok := changed[id]; !ok {
+			if _, ok := j.depsChanged[id]; !ok {
 				return false, errorf("depends on ID %d, which is not in resource's direct dependencies", id)
 			}
 		}
 		for i := 0; i < n; i++ {
-			if changed[deps.At(i)] {
+			if j.depsChanged[deps.At(i)] {
 				return true, nil
 			}
 		}
@@ -456,24 +486,24 @@ func (app *Applier) evalExecCondition(ctx context.Context, cond catalog.Exec_con
 	}
 }
 
-func (app *Applier) runCommand(ctx context.Context, c catalog.Exec_Command) error {
-	cmd, err := app.buildCommand(c)
+func (j *job) runCommand(ctx context.Context, c catalog.Exec_Command) error {
+	cmd, err := buildCommand(c, j.bashPath)
 	if err != nil {
 		return err
 	}
-	out, err := app.System.Run(ctx, cmd)
+	out, err := j.sys.Run(ctx, cmd)
 	if err != nil {
 		return errorWithOutput(out, err)
 	}
 	return nil
 }
 
-func (app *Applier) runCondition(ctx context.Context, c catalog.Exec_Command) (success bool, err error) {
-	cmd, err := app.buildCommand(c)
+func (j *job) runCondition(ctx context.Context, c catalog.Exec_Command) (success bool, err error) {
+	cmd, err := buildCommand(c, j.bashPath)
 	if err != nil {
 		return false, err
 	}
-	out, err := app.System.Run(ctx, cmd)
+	out, err := j.sys.Run(ctx, cmd)
 	if _, fail := err.(*exec.ExitError); fail {
 		return false, nil
 	}
@@ -483,7 +513,7 @@ func (app *Applier) runCondition(ctx context.Context, c catalog.Exec_Command) (s
 	return true, nil
 }
 
-func (app *Applier) buildCommand(cmd catalog.Exec_Command) (*system.Cmd, error) {
+func buildCommand(cmd catalog.Exec_Command, bashPath string) (*system.Cmd, error) {
 	var c *system.Cmd
 	switch cmd.Which() {
 	case catalog.Exec_Command_Which_argv:
@@ -507,17 +537,13 @@ func (app *Applier) buildCommand(cmd catalog.Exec_Command) (*system.Cmd, error) 
 			Args: argv,
 		}
 	case catalog.Exec_Command_Which_bash:
-		p := app.Bash
-		if p == "" {
-			p = DefaultBashPath
-		}
 		b, err := cmd.BashBytes()
 		if err != nil {
 			return nil, errorf("read bash: %v", err)
 		}
 		c = &system.Cmd{
-			Path:  p,
-			Args:  []string{p},
+			Path:  bashPath,
+			Args:  []string{bashPath},
 			Stdin: bytes.NewReader(b),
 		}
 	default:

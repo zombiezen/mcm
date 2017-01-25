@@ -26,13 +26,25 @@ import (
 	"github.com/zombiezen/mcm/internal/system"
 )
 
-// DefaultBashPath is the path used if Applier.Bash is empty.
-const DefaultBashPath = "/bin/bash"
+// Apply changes a system match the resources in a catalog.
+// Passing nil options is the same as passing the zero value.
+func Apply(ctx context.Context, sys system.System, c catalog.Catalog, opts *Options) error {
+	res, _ := c.Resources()
+	g, err := depgraph.New(res)
+	if err != nil {
+		return toError(err)
+	}
+	if err = apply(ctx, cacheUserLookups(sys), g, opts.normalize()); err != nil {
+		return toError(err)
+	}
+	return nil
+}
 
-// An Applier applies a catalog to a system.
-type Applier struct {
-	System system.System
-	Log    Logger
+// Options is the set of optional parameters for Apply.  The zero value
+// is the default set of options.
+type Options struct {
+	// Log will receive progress messages if non-nil.
+	Log Logger
 
 	// Bash is the path to the bash executable.
 	// If it's empty, then Apply uses DefaultBashPath.
@@ -41,10 +53,33 @@ type Applier struct {
 	// ConcurrentJobs is the number of resources to apply simultaneously.
 	// If non-positive, then it assumes 1.
 	ConcurrentJobs int
-
-	// TODO(someday): pass this down as an argument
-	userLookup userLookupCache
 }
+
+// normalize will return a Options struct that is equivalent to opts.
+// It will never return nil, and it may return opts.
+func (opts *Options) normalize() *Options {
+	if opts == nil {
+		return &Options{Log: nullLogger{}}
+	}
+	if opts.Log != nil && opts.Bash != "" && opts.ConcurrentJobs >= 1 {
+		return opts
+	}
+	newOpts := new(Options)
+	*newOpts = *opts
+	if newOpts.Log == nil {
+		newOpts.Log = nullLogger{}
+	}
+	if newOpts.Bash == "" {
+		newOpts.Bash = DefaultBashPath
+	}
+	if newOpts.ConcurrentJobs < 1 {
+		newOpts.ConcurrentJobs = 1
+	}
+	return newOpts
+}
+
+// DefaultBashPath is the path used if Applier.Bash is empty.
+const DefaultBashPath = "/bin/bash"
 
 // Logger collects execution messages from an Applier.  A Logger must be
 // safe to call from multiple goroutines.
@@ -53,18 +88,10 @@ type Logger interface {
 	Error(ctx context.Context, err error)
 }
 
-func (app *Applier) Apply(ctx context.Context, c catalog.Catalog) error {
-	res, _ := c.Resources()
-	g, err := depgraph.New(res)
-	if err != nil {
-		return toError(err)
-	}
-	app.userLookup = userLookupCache{lookup: app.System}
-	if err = app.applyCatalog(ctx, g); err != nil {
-		return toError(err)
-	}
-	return nil
-}
+type nullLogger struct{}
+
+func (nullLogger) Infof(ctx context.Context, format string, args ...interface{}) {}
+func (nullLogger) Error(ctx context.Context, err error)                          {}
 
 type applyState struct {
 	graph            *depgraph.Graph
@@ -72,22 +99,18 @@ type applyState struct {
 	changedResources map[uint64]bool
 }
 
-func (app *Applier) applyCatalog(ctx context.Context, g *depgraph.Graph) error {
-	njobs := app.ConcurrentJobs
-	if njobs < 1 {
-		njobs = 1
-	}
-	ch, results, done := app.startWorkers(ctx, njobs)
+func apply(ctx context.Context, sys system.System, g *depgraph.Graph, opts *Options) error {
+	ch, results, done := startWorkers(ctx, opts.Log, opts.ConcurrentJobs)
 	defer done()
 
 	state := &applyState{
 		graph:            g,
 		changedResources: make(map[uint64]bool),
 	}
-	working := make(workingSet, njobs)
-	var nextArgs applyArgs
+	working := make(workingSet, opts.ConcurrentJobs)
+	var nextJob *job
 	for !g.Done() {
-		if working.hasIdle() && !nextArgs.resource.IsValid() {
+		if working.hasIdle() && nextJob == nil {
 			// Find next work, if any.
 			ready := g.Ready()
 			if len(ready) == 0 {
@@ -95,29 +118,32 @@ func (app *Applier) applyCatalog(ctx context.Context, g *depgraph.Graph) error {
 			}
 			if id := working.next(ready); id != 0 {
 				res := g.Resource(id)
-				nextArgs = applyArgs{
-					resource:   res,
-					depChanged: mapChangedDeps(state.changedResources, res),
+				nextJob = &job{
+					sys:         sys,
+					log:         opts.Log,
+					bashPath:    opts.Bash,
+					resource:    res,
+					depsChanged: mapChangedDeps(state.changedResources, res),
 				}
 			}
 		}
-		if !nextArgs.resource.IsValid() {
+		if nextJob == nil {
 			select {
 			case r := <-results:
 				working.remove(r.id)
-				app.update(ctx, state, r)
+				update(ctx, opts.Log, state, r)
 			case <-ctx.Done():
 				return ctx.Err()
 			}
 			continue
 		}
 		select {
-		case ch <- nextArgs:
-			working.add(nextArgs.resource.ID())
-			nextArgs = applyArgs{}
+		case ch <- nextJob:
+			working.add(nextJob.resource.ID())
+			nextJob = nil
 		case r := <-results:
 			working.remove(r.id)
-			app.update(ctx, state, r)
+			update(ctx, opts.Log, state, r)
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -129,11 +155,10 @@ func (app *Applier) applyCatalog(ctx context.Context, g *depgraph.Graph) error {
 	return nil
 }
 
-func (app *Applier) update(ctx context.Context, state *applyState, r applyResult) {
+func update(ctx context.Context, log Logger, state *applyState, r jobResult) {
 	if r.err != nil {
 		state.hasFailures = true
-		res := state.graph.Resource(r.id)
-		app.Log.Error(ctx, errorWithResource(res, r.err))
+		log.Error(ctx, r.err)
 		skipped := state.graph.MarkFailure(r.id)
 		if len(skipped) == 0 {
 			return
@@ -142,7 +167,8 @@ func (app *Applier) update(ctx context.Context, state *applyState, r applyResult
 		for i := range skipnames {
 			skipnames[i] = formatResource(state.graph.Resource(skipped[i]))
 		}
-		app.Log.Infof(ctx, "skipping due to failure of %s: %s", formatResource(res), strings.Join(skipnames, ", "))
+		res := state.graph.Resource(r.id)
+		log.Infof(ctx, "skipping due to failure of %s: %s", formatResource(res), strings.Join(skipnames, ", "))
 		return
 	}
 	state.graph.Mark(r.id)
@@ -206,26 +232,15 @@ func (ws workingSet) next(ready []uint64) uint64 {
 	return 0
 }
 
-type applyArgs struct {
-	resource   catalog.Resource
-	depChanged map[uint64]bool
-}
-
-type applyResult struct {
-	id      uint64
-	changed bool
-	err     error
-}
-
-func (app *Applier) startWorkers(ctx context.Context, n int) (chan<- applyArgs, <-chan applyResult, func()) {
-	ch := make(chan applyArgs)
-	results := make(chan applyResult)
+func startWorkers(ctx context.Context, log Logger, n int) (chan<- *job, <-chan jobResult, func()) {
+	ch := make(chan *job)
+	results := make(chan jobResult)
 	workCtx, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
 	wg.Add(n)
 	for i := 0; i < n; i++ {
 		go func() {
-			app.worker(workCtx, results, ch)
+			worker(workCtx, log, results, ch)
 			wg.Done()
 		}()
 	}
@@ -235,20 +250,15 @@ func (app *Applier) startWorkers(ctx context.Context, n int) (chan<- applyArgs, 
 	}
 }
 
-func (app *Applier) worker(ctx context.Context, results chan<- applyResult, ch <-chan applyArgs) {
+func worker(ctx context.Context, log Logger, results chan<- jobResult, ch <-chan *job) {
 	for {
 		select {
-		case args, ok := <-ch:
+		case j, ok := <-ch:
 			if !ok {
 				return
 			}
-			app.Log.Infof(ctx, "applying: %s", formatResource(args.resource))
-			changed, err := app.applyResource(ctx, args.resource, args.depChanged)
-			r := applyResult{
-				id:      args.resource.ID(),
-				changed: changed,
-				err:     err,
-			}
+			log.Infof(ctx, "applying: %s", formatResource(j.resource))
+			r := j.run(ctx)
 			select {
 			case results <- r:
 			case <-ctx.Done():
@@ -258,6 +268,26 @@ func (app *Applier) worker(ctx context.Context, results chan<- applyResult, ch <
 			return
 		}
 	}
+}
+
+type cachedUserLookupSystem struct {
+	system.System
+	cache userLookupCache
+}
+
+func cacheUserLookups(sys system.System) system.System {
+	return &cachedUserLookupSystem{
+		System: sys,
+		cache:  userLookupCache{lookup: sys},
+	}
+}
+
+func (s *cachedUserLookupSystem) LookupUser(name string) (system.UID, error) {
+	return s.cache.LookupUser(name)
+}
+
+func (s *cachedUserLookupSystem) LookupGroup(name string) (system.GID, error) {
+	return s.cache.LookupGroup(name)
 }
 
 // TODO(someday): ensure lookups are single-flight

@@ -43,23 +43,22 @@ func usage() {
 
 func main() {
 	log := new(logger)
-	app := &execlib.Applier{
+	opts := &execlib.Options{
 		Log: log,
 	}
 	simulate := flag.Bool("n", false, "dry-run")
 	flag.BoolVar(&log.quiet, "q", false, "suppress info messages and failure output")
 	logCommands := flag.Bool("s", false, "show commands run in the log")
-	flag.IntVar(&app.ConcurrentJobs, "j", 1, "set the maximum number of resources to apply simultaneously")
-	flag.StringVar(&app.Bash, "bash", execlib.DefaultBashPath, "path to bash shell")
+	flag.IntVar(&opts.ConcurrentJobs, "j", 1, "set the maximum number of resources to apply simultaneously")
+	flag.StringVar(&opts.Bash, "bash", execlib.DefaultBashPath, "path to bash shell")
 	flag.Parse()
+	var sys system.System = system.Local{}
 	if *simulate {
-		app.System = simulatedSystem{}
-	} else {
-		app.System = system.Local{}
+		sys = simulatedSystem{}
 	}
 	if *logCommands {
-		app.System = sysLogger{
-			System: app.System,
+		sys = sysLogger{
+			System: sys,
 			log:    log,
 		}
 	}
@@ -91,7 +90,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	if err := app.Apply(ctx, cat); err != nil {
+	if err := execlib.Apply(ctx, sys, cat, opts); err != nil {
 		log.Fatal(ctx, err)
 	}
 }

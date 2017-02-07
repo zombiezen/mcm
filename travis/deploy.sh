@@ -22,20 +22,24 @@ echostep() {
 }
 
 # Install gcloud & gsutil
-echostep curl 'https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-142.0.0-linux-x86_64.tar.gz' > /tmp/google-cloud-sdk.tar.gz || exit 1
-echo 'c05f649623b7a8696923f4c003bd95decb591f6e /tmp/google-cloud-sdk.tar.gz' | echostep sha1sum -c || exit 1
-echostep tar zxf /tmp/google-cloud-sdk.tar.gz -C "$HOME" || exit 1
+if [[ ! -d "$HOME/google-cloud-sdk" ]]; then
+  echostep curl 'https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-142.0.0-linux-x86_64.tar.gz' > /tmp/google-cloud-sdk.tar.gz || exit 1
+  echo 'c05f649623b7a8696923f4c003bd95decb591f6e /tmp/google-cloud-sdk.tar.gz' | echostep sha1sum -c || exit 1
+  echostep tar zxf /tmp/google-cloud-sdk.tar.gz -C "$HOME" || exit 1
+fi
 echostep $HOME/google-cloud-sdk/bin/gcloud --quiet components install gsutil || exit 1
 
 # gcloud init
 echostep $HOME/google-cloud-sdk/bin/gcloud config set disable_prompts True || exit 1
 echostep $HOME/google-cloud-sdk/bin/gcloud config set project mcm-releases || exit 1
-echo "decrypt travis/service-account.json" 1>&2
-openssl aes-256-cbc \
-  -K $encrypted_0c4c8f78bd1d_key -iv $encrypted_0c4c8f78bd1d_iv \
-  -in travis/service-account.json.enc \
-  -out travis/service-account.json \
-  -d || exit 1
+if [[ ! -f travis/service-account.json ]]; then
+  echo "decrypt travis/service-account.json" 1>&2
+  openssl aes-256-cbc \
+    -K $encrypted_0c4c8f78bd1d_key -iv $encrypted_0c4c8f78bd1d_iv \
+    -in travis/service-account.json.enc \
+    -out travis/service-account.json \
+    -d || exit 1
+fi
 echostep $HOME/google-cloud-sdk/bin/gcloud auth activate-service-account --key-file=travis/service-account.json || exit 1
 
 # Build and deploy
@@ -46,4 +50,7 @@ echostep zip -j travis/build.zip \
   bazel-bin/exec/mcm-exec \
   bazel-bin/luacat/mcm-luacat \
   bazel-bin/shellify/mcm-shellify || exit 1
-echostep $HOME/google-cloud-sdk/bin/gsutil cp -n travis/build.zip "$gcs_out" || exit 1
+echostep $HOME/google-cloud-sdk/bin/gsutil cp -n travis/build.zip "$gcs_out"
+gsutil_result=$?
+echostep rm -f travis/build.zip || exit 1
+[[ $gsutil_result -eq 0 ]] || exit 1

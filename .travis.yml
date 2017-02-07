@@ -8,6 +8,6 @@ script:         ./bazel --bazelrc=travis/bazelrc test //...
 
 deploy:
   - provider: script
-    script: "travis-deploy.sh '' gs://mcm-continuous-builds/mcm- -${TRAVIS_BUILD_NUMBER}.zip"
+    script: "travis/deploy.sh '' gs://mcm-continuous-builds/mcm- -${TRAVIS_BUILD_NUMBER}.zip"
     on:
       branch: master

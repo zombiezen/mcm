@@ -22,7 +22,9 @@ echostep() {
 }
 
 # Install gcloud & gsutil
-echostep curl https://sdk.cloud.google.com | bash -s -- --disable-prompts || exit 1
+echostep curl 'https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-142.0.0-linux-x86_64.tar.gz' > /tmp/google-cloud-sdk.tar.gz || exit 1
+echo 'c05f649623b7a8696923f4c003bd95decb591f6e /tmp/google-cloud-sdk.tar.gz' | echostep sha1sum -c || exit 1
+echostep tar zxf /tmp/google-cloud-sdk.tar.gz -C "$HOME" || exit 1
 echostep $HOME/google-cloud-sdk/bin/gcloud --quiet components install gsutil || exit 1
 
 # gcloud init

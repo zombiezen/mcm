@@ -2,6 +2,12 @@ language: generic
 dist: trusty
 sudo: false
 
-before_install: ./bazel --batch --bazelrc=/dev/null version
-install:        ./bazel --batch --bazelrc=/dev/null fetch //...
-script:         ./bazel --batch --bazelrc=/dev/null --host_jvm_args=-Xms2500m --host_jvm_args=-Xmx2500m test --spawn_strategy=standalone --genrule_strategy=standalone --test_strategy=standalone --local_resources=1536,1.5,0.5 //...
+before_install: ./bazel --bazelrc=travis/bazelrc version
+install:        ./bazel --bazelrc=travis/bazelrc fetch //...
+script:         ./bazel --bazelrc=travis/bazelrc test //...
+
+deploy:
+  - provider: script
+    script: "travis-deploy.sh '' gs://mcm-continuous-builds/mcm- -${TRAVIS_BUILD_NUMBER}.zip"
+    on:
+      branch: master

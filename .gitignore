@@ -4,3 +4,5 @@ bazel-genfiles
 bazel-mcm
 bazel-out
 bazel-testlogs
+travis/build.zip
+travis/service-account.json

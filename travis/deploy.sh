@@ -22,7 +22,7 @@ echostep() {
 }
 
 # Install gcloud & gsutil
-echostep curl https://sdk.cloud.google.com | bash -s --disable-prompts || exit 1
+echostep curl https://sdk.cloud.google.com | bash -s -- --disable-prompts || exit 1
 echostep $HOME/google-cloud-sdk/bin/gcloud --quiet components install gsutil || exit 1
 
 # gcloud init

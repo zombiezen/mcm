@@ -84,8 +84,8 @@ namespace {
   }
 }  // namespace
 
-Main::Main(kj::ProcessContext& context, kj::OutputStream& outStream, kj::OutputStream& logStream):
-    context(context), outStream(&outStream), logStream(logStream) {
+Main::Main(kj::ProcessContext& context, kj::String versionInfo, kj::OutputStream& outStream, kj::OutputStream& logStream):
+    context(context), versionInfo(kj::mv(versionInfo)), outStream(&outStream), logStream(logStream) {
 }
 
 void Main::setFallbackIncludePath(kj::StringPtr include) {
@@ -227,7 +227,7 @@ kj::String Main::buildIncludePath(kj::StringPtr chunkName) {
 }
 
 kj::MainFunc Main::getMain() {
-  return kj::MainBuilder(context, "mcm-luacat", "Interprets Lua source and generates an mcm catalog.")
+  return kj::MainBuilder(context, versionInfo, "Interprets Lua source and generates an mcm catalog.")
       .addOptionWithArg({'I'}, KJ_BIND_METHOD(*this, addIncludePath),
           "<templates>", "Add a package path template in package.searchpath format.")
       .addOptionWithArg({'o'}, KJ_BIND_METHOD(*this, setOutputPath),

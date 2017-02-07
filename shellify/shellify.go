@@ -21,6 +21,7 @@ import (
 	"os"
 
 	"github.com/zombiezen/mcm/catalog"
+	"github.com/zombiezen/mcm/internal/version"
 	"github.com/zombiezen/mcm/shellify/shlib"
 	"github.com/zombiezen/mcm/third_party/golang/capnproto"
 )
@@ -31,11 +32,16 @@ func init() {
 
 func usage() {
 	fmt.Fprintf(os.Stderr, "usage: %s [CATALOG]\n", os.Args[0])
-	// TODO(someday): flag.PrintDefaults()
+	flag.PrintDefaults()
 }
 
 func main() {
+	versionMode := flag.Bool("version", false, "display version info")
 	flag.Parse()
+	if *versionMode {
+		version.Show()
+		return
+	}
 
 	c, err := readCatalogArg()
 	if err != nil {

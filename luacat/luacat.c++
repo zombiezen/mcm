@@ -18,13 +18,22 @@
 #include "kj/main.h"
 #include "kj/miniposix.h"
 
+#include "luacat/version.h"
 #include "luacat/main.h"
 
 int main(int argc, char* argv[]) {
   kj::TopLevelProcessContext context(argv[0]);
   kj::FdOutputStream out(STDOUT_FILENO);
   kj::FdOutputStream err(STDERR_FILENO);
-  mcm::luacat::Main mainObject(context, out, err);
+  kj::String versionInfo;
+  if (BUILD_EMBED_LABEL[0] != 0) {
+    versionInfo = kj::str("version ", BUILD_EMBED_LABEL);
+  } else if (strcmp(BUILD_SCM_STATUS, "Modified") == 0) {
+    versionInfo = kj::str("built from ", BUILD_SCM_REVISION, " with local modifications");
+  } else {
+    versionInfo = kj::str("built from ", BUILD_SCM_REVISION);
+  }
+  mcm::luacat::Main mainObject(context, kj::mv(versionInfo), out, err);
   const char* path = getenv("MCM_LUACAT_PATH");
   if (path != nullptr) {
     mainObject.setFallbackIncludePath(path);

@@ -108,7 +108,7 @@ TEST(MainTest, TestSuite) {
     DiscardOutputStream discardStdout;
     auto logBuf = kj::heapArray<kj::byte>(logBufMax);
     kj::ArrayOutputStream logBufStream(logBuf);
-    mcm::luacat::Main main(ctx, discardStdout, logBufStream);
+    mcm::luacat::Main main(ctx, kj::str(), discardStdout, logBufStream);
     // TODO(soon): catch exceptions
     kj::ArrayInputStream scriptStream(testCase.getScript().asBytes());
     capnp::MallocMessageBuilder message;
@@ -134,7 +134,7 @@ TEST(MainTest, DefaultPackagePathIsEmpty) {
   DiscardOutputStream discardStdout;
   auto logBuf = kj::heapArray<kj::byte>(logBufMax);
   kj::ArrayOutputStream logBufStream(logBuf);
-  mcm::luacat::Main main(ctx, discardStdout, logBufStream);
+  mcm::luacat::Main main(ctx, kj::str(), discardStdout, logBufStream);
   kj::ArrayInputStream scriptStream(kj::StringPtr("print(package.path)\n").asBytes());
   capnp::MallocMessageBuilder message;
   main.process(message, "=(load)", scriptStream);
@@ -149,7 +149,7 @@ TEST(MainTest, AddIncludePathAddsToPackagePath) {
   DiscardOutputStream discardStdout;
   auto logBuf = kj::heapArray<kj::byte>(logBufMax);
   kj::ArrayOutputStream logBufStream(logBuf);
-  mcm::luacat::Main main(ctx, discardStdout, logBufStream);
+  mcm::luacat::Main main(ctx, kj::str(), discardStdout, logBufStream);
   ASSERT_PRED1(isValidOption, main.addIncludePath("?.lua"));
   kj::ArrayInputStream scriptStream(kj::StringPtr("print(package.path)\n").asBytes());
   capnp::MallocMessageBuilder message;
@@ -165,7 +165,7 @@ TEST(MainTest, AddIncludePathAllowsMultiplePaths) {
   DiscardOutputStream discardStdout;
   auto logBuf = kj::heapArray<kj::byte>(logBufMax);
   kj::ArrayOutputStream logBufStream(logBuf);
-  mcm::luacat::Main main(ctx, discardStdout, logBufStream);
+  mcm::luacat::Main main(ctx, kj::str(), discardStdout, logBufStream);
   ASSERT_PRED1(isValidOption, main.addIncludePath("?.lua;foo?.lua"));
   kj::ArrayInputStream scriptStream(kj::StringPtr("print(package.path)\n").asBytes());
   capnp::MallocMessageBuilder message;
@@ -181,7 +181,7 @@ TEST(MainTest, AddIncludePathCombinesWithSemicolon) {
   DiscardOutputStream discardStdout;
   auto logBuf = kj::heapArray<kj::byte>(logBufMax);
   kj::ArrayOutputStream logBufStream(logBuf);
-  mcm::luacat::Main main(ctx, discardStdout, logBufStream);
+  mcm::luacat::Main main(ctx, kj::str(), discardStdout, logBufStream);
   ASSERT_PRED1(isValidOption, main.addIncludePath("?.lua"));
   ASSERT_PRED1(isValidOption, main.addIncludePath("foo?.lua"));
   kj::ArrayInputStream scriptStream(kj::StringPtr("print(package.path)\n").asBytes());
@@ -198,7 +198,7 @@ TEST(MainTest, FallbackPathIsAtEndOfIncludes) {
   DiscardOutputStream discardStdout;
   auto logBuf = kj::heapArray<kj::byte>(logBufMax);
   kj::ArrayOutputStream logBufStream(logBuf);
-  mcm::luacat::Main main(ctx, discardStdout, logBufStream);
+  mcm::luacat::Main main(ctx, kj::str(), discardStdout, logBufStream);
   main.setFallbackIncludePath("bar?.lua;baz?.lua");
   ASSERT_PRED1(isValidOption, main.addIncludePath("?.lua"));
   ASSERT_PRED1(isValidOption, main.addIncludePath("foo?.lua"));

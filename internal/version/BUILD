@@ -16,6 +16,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "doc.go",
+        "show.go",
         "version.go",
     ],
     visibility = ["//:__subpackages__"],

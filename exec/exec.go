@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"github.com/zombiezen/mcm/catalog"
 	"github.com/zombiezen/mcm/exec/execlib"
 	"github.com/zombiezen/mcm/internal/system"
+	"github.com/zombiezen/mcm/internal/version"
 	"github.com/zombiezen/mcm/third_party/golang/capnproto"
 )
 
@@ -37,7 +39,7 @@ func init() {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "usage: %s [CATALOG]:\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "usage: %s [CATALOG]:\n", filepath.Base(os.Args[0]))
 	flag.PrintDefaults()
 }
 
@@ -51,7 +53,12 @@ func main() {
 	logCommands := flag.Bool("s", false, "show commands run in the log")
 	flag.IntVar(&opts.ConcurrentJobs, "j", 1, "set the maximum number of resources to apply simultaneously")
 	flag.StringVar(&opts.Bash, "bash", execlib.DefaultBashPath, "path to bash shell")
+	versionMode := flag.Bool("version", false, "display version info")
 	flag.Parse()
+	if *versionMode {
+		version.Show()
+		return
+	}
 	var sys system.System = system.Local{}
 	if *simulate {
 		sys = simulatedSystem{}

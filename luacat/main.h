@@ -32,7 +32,7 @@ namespace luacat {
 
 class Main {
 public:
-  Main(kj::ProcessContext& context, kj::OutputStream& outStream, kj::OutputStream& logStream);
+  Main(kj::ProcessContext& context, kj::String versionInfo, kj::OutputStream& outStream, kj::OutputStream& logStream);
   KJ_DISALLOW_COPY(Main);
 
   void setFallbackIncludePath(kj::StringPtr include);
@@ -57,6 +57,7 @@ private:
   kj::String buildIncludePath(kj::StringPtr chunkName);
 
   kj::ProcessContext& context;
+  kj::String versionInfo;
   kj::OutputStream* outStream;
   kj::Own<kj::OutputStream> ownOutStream;  // only set if Main creates an output file
   kj::OutputStream& logStream;

@@ -21,11 +21,17 @@ import (
 	"os"
 
 	"github.com/zombiezen/mcm/catalog"
+	"github.com/zombiezen/mcm/internal/version"
 	"github.com/zombiezen/mcm/third_party/golang/capnproto"
 )
 
 func main() {
+	versionMode := flag.Bool("version", false, "display version info")
 	flag.Parse()
+	if *versionMode {
+		version.Show()
+		return
+	}
 
 	var cat catalog.Catalog
 	switch flag.NArg() {

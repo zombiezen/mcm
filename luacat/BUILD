@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-MAIN_SRCS = ["luacat.c++"]
+MAIN_SRCS = ["luacat.c++", "version.h"]
 TEST_GLOB = ["*-test.c++"]
 
 cc_binary(
@@ -22,6 +22,14 @@ cc_binary(
         ":luacat",
         "//third_party/capnproto:kj",
     ],
+)
+
+genrule(
+    name = "buildstamp",
+    outs = ["version.h"],
+    cmd = "$(location genversion.sh) > \"$@\"",
+    tools = ["genversion.sh"],
+    stamp = 1,
 )
 
 cc_library(

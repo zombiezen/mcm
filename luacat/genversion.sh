@@ -1,4 +1,5 @@
-# Copyright 2016 The Minimal Configuration Manager Authors
+#!/bin/bash
+# Copyright 2017 The Minimal Configuration Manager Authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,14 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-go_binary(
-    name = "mcm-exec",
-    srcs = glob(["*.go"]),
-    deps = [
-        "//:catalog",
-        "//exec/execlib:go_default_library",
-        "//internal/system:go_default_library",
-        "//internal/version:go_default_library",
-        "//third_party/golang/capnproto:go_default_library",
-    ],
-)
+copyVal() {
+  local statusFile="$1"
+  local statusName="$2"
+  local ccName="$2"
+  local val
+  val="$(awk "/^${statusName}/ { print \$2 }" "$statusFile")"
+  [[ $? -eq 0 ]] || return 1
+  echo "const char* $ccName = \"$val\";"
+}
+
+copyVal bazel-out/stable-status.txt BUILD_EMBED_LABEL || exit 1
+copyVal bazel-out/volatile-status.txt BUILD_SCM_REVISION || exit 1
+copyVal bazel-out/volatile-status.txt BUILD_SCM_STATUS || exit 1

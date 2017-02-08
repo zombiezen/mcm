@@ -3,9 +3,22 @@ layout: page
 title: Getting Started
 ---
 
-## Building
+## Installing
 
-mcm does not build binaries (yet), so you will need to install from source.
+Grab the latest binary release for your platform from the [Releases]({{ site.github.releases_url }}) page.
+You will probably want to copy the binaries into your `PATH`.
+This will look something like this:
+
+```bash
+VERSION=v0.2.0
+curl -sSL {{ site.github.releases_url }}/download/${VERSION}/mcm-${VERSION}-linux_amd64.zip > mcm.zip
+unzip mcm.zip -d mcm
+cp mcm/* /usr/local/bin/
+```
+
+### Building from source
+
+If mcm binaries are not available for your platform, then you may still be able to build from source.
 Navigate over to [Releases]({{ site.github.releases_url }}) to download the latest source archive.
 Ensure that you have a modern C++ compiler installed (typically through your operating system's package manager).
 Then, kick off a [Bazel](https://bazel.build/) build (don't worry, it will be downloaded for you):
@@ -26,7 +39,7 @@ You can optionally install them into your PATH:
 ./bazel build -c opt //...
 
 # Copy into your PATH
-cp bazel-bin/shellify/mcm-shellify bazel-bin/luacat/mcm-luacat bazel-bin/exec/mcm-exec bazel-bin/dot/mcm-dot ~/bin/
+cp bazel-bin/shellify/mcm-shellify bazel-bin/luacat/mcm-luacat bazel-bin/exec/mcm-exec bazel-bin/dot/mcm-dot /usr/local/bin/
 ```
 
 ## Writing a Catalog

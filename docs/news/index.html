@@ -5,7 +5,7 @@ title: News
 
 <div class="posts">
   {% for post in paginator.posts %}
-  <div class="post">
+  <article class="post">
     <h1 class="post-title">
       <a href="{{ post.url|prepend:site.baseurl }}">
         {{ post.title }}
@@ -15,11 +15,11 @@ title: News
     <span class="post-date">{{ post.date | date_to_string }}</span>
 
     {{ post.content }}
-  </div>
+  </article>
   {% endfor %}
 </div>
 
-<div class="pagination">
+<nav class="pagination">
   {% if paginator.next_page %}
     <a class="pagination-item older" href="{{ site.baseurl }}page{{paginator.next_page}}">Older</a>
   {% else %}
@@ -34,4 +34,4 @@ title: News
   {% else %}
     <span class="pagination-item newer">Newer</span>
   {% endif %}
-</div>
+</nav>

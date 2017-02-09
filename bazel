@@ -23,16 +23,32 @@ die() {
 
 WORKSPACE_DIR="$(dirname "$(readlink -f "$0")")"
 BAZEL_RELEASE='0.4.0'
-if [[ ! -x "$WORKSPACE_DIR/.bazel/bin/bazel" ]]; then
-  echo "Downloading Bazel ${BAZEL_RELEASE}..." 1>&2
-  installscript="/tmp/bazel-${BAZEL_RELEASE}.sh"
-  curl -sSL "https://github.com/bazelbuild/bazel/releases/download/${BAZEL_RELEASE}/bazel-${BAZEL_RELEASE}-installer-linux-x86_64.sh" > "$installscript" || \
-    (rm -f "$installscript" ; die "bazel: wrapper: failed to download")
-  bash /tmp/bazel-${BAZEL_RELEASE}.sh \
-    --bin="$WORKSPACE_DIR/.bazel/bin" \
-    --base="$WORKSPACE_DIR/.bazel/lib" \
-    --bazelrc="$WORKSPACE_DIR/.bazel/bazelrc" || \
-    (rm -f "$installscript" ; die "bazel: wrapper: failed to install")
-  rm -f "$installscript"
+
+check-bazel-version() {
+  "$1" version | grep "^Build label: $BAZEL_RELEASE\$" > /dev/null 2>&1
+}
+
+# Check if Bazel in PATH is correct version
+if hash bazel > /dev/null 2>&1 && check-bazel-version bazel; then
+  exec bazel "$@"
 fi
+
+# Check if existing workspace Bazel is correct version
+if [[ -x "$WORKSPACE_DIR/.bazel/bin/bazel" ]] && \
+    check-bazel-version "$WORKSPACE_DIR/.bazel/bin/bazel"; then
+  exec "$WORKSPACE_DIR/.bazel/bin/bazel" "$@"
+fi
+
+# Download correct Bazel release to workspace
+rm -rf "$WORKSPACE_DIR/.bazel"
+echo "Downloading Bazel ${BAZEL_RELEASE}..." 1>&2
+installscript="/tmp/bazel-${BAZEL_RELEASE}.sh"
+curl -sSL "https://github.com/bazelbuild/bazel/releases/download/${BAZEL_RELEASE}/bazel-${BAZEL_RELEASE}-installer-linux-x86_64.sh" > "$installscript" || \
+  (rm -f "$installscript" ; die "bazel: wrapper: failed to download")
+bash /tmp/bazel-${BAZEL_RELEASE}.sh \
+  --bin="$WORKSPACE_DIR/.bazel/bin" \
+  --base="$WORKSPACE_DIR/.bazel/lib" \
+  --bazelrc="$WORKSPACE_DIR/.bazel/bazelrc" || \
+  (rm -f "$installscript" ; die "bazel: wrapper: failed to install")
+rm -f "$installscript"
 exec "$WORKSPACE_DIR/.bazel/bin/bazel" "$@"

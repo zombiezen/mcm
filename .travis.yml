@@ -1,6 +1,9 @@
 language: generic
-dist: trusty
-sudo: false
+matrix:
+  - os: linux
+    dist: trusty
+    sudo: false
+  - os: osx
 
 before_install: ./bazel --bazelrc=travis/bazelrc version
 install:        ./bazel --bazelrc=travis/bazelrc fetch //...

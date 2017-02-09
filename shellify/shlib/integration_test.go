@@ -42,7 +42,12 @@ func TestIntegration(t *testing.T) {
 		t.Skipf("Can't find bash: %v", err)
 	}
 	t.Logf("using %s for bash", bashPath)
-	applytests.Run(t, (&fixtureFactory{bashPath: bashPath}).newFixture)
+	u, err := findSysutils()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ff := &fixtureFactory{bashPath: bashPath, sysutils: u}
+	applytests.Run(t, ff.newFixture)
 }
 
 func TestExecBash(t *testing.T) {
@@ -51,9 +56,13 @@ func TestExecBash(t *testing.T) {
 		t.Skipf("Can't find bash: %v", err)
 	}
 	t.Logf("using %s for bash", bashPath)
+	u, err := findSysutils()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	f, err := (&fixtureFactory{bashPath: bashPath}).newFixture(ctx, t, "execbash")
+	f, err := (&fixtureFactory{bashPath: bashPath, sysutils: u}).newFixture(ctx, t, "execbash")
 	if err != nil {
 		cancel()
 		t.Fatal("fixture:", err)
@@ -96,6 +105,31 @@ func TestExecBash(t *testing.T) {
 
 type fixtureFactory struct {
 	bashPath string
+	*sysutils
+}
+
+type sysutils struct {
+	truePath  string
+	falsePath string
+	touchPath string
+}
+
+func findSysutils() (*sysutils, error) {
+	u := new(sysutils)
+	var err error
+	u.truePath, err = exec.LookPath("true")
+	if err != nil {
+		return nil, fmt.Errorf("can't find true: %v", err)
+	}
+	u.falsePath, err = exec.LookPath("false")
+	if err != nil {
+		return nil, fmt.Errorf("can't find false: %v", err)
+	}
+	u.touchPath, err = exec.LookPath("touch")
+	if err != nil {
+		return nil, fmt.Errorf("can't find touch: %v", err)
+	}
+	return u, nil
 }
 
 func (ff *fixtureFactory) newFixture(ctx context.Context, log applytests.Logger, name string) (applytests.Fixture, error) {
@@ -103,6 +137,7 @@ func (ff *fixtureFactory) newFixture(ctx context.Context, log applytests.Logger,
 		name:     name,
 		log:      log,
 		bashPath: ff.bashPath,
+		sysutils: ff.sysutils,
 	}
 	var err error
 	f.root, err = ioutil.TempDir(os.Getenv(tmpDirEnv), "shlib_testdir")
@@ -116,6 +151,7 @@ type fixture struct {
 	name     string
 	log      applytests.Logger
 	bashPath string
+	*sysutils
 
 	root string
 }
@@ -127,9 +163,9 @@ func (f *fixture) System() system.System {
 func (f *fixture) SystemInfo() *applytests.SystemInfo {
 	return &applytests.SystemInfo{
 		Root:      f.root,
-		TruePath:  "/bin/true",
-		FalsePath: "/bin/false",
-		TouchPath: "/usr/bin/touch",
+		TruePath:  f.truePath,
+		FalsePath: f.falsePath,
+		TouchPath: f.touchPath,
 	}
 }
 

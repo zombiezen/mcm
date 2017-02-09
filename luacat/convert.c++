@@ -177,7 +177,8 @@ void copyStruct(lua_State* state, capnp::DynamicStruct::Builder builder) {
       }
       break;
     default:
-      KJ_FAIL_REQUIRE("can't map field type to Lua", field.getType().which());
+      KJ_FAIL_REQUIRE("can't map field type to Lua",
+          static_cast<int>(field.getType().which()));
     }
 
     lua_pop(state, 1);  // pop value, now key is on top.
@@ -322,7 +323,8 @@ void copyList(lua_State* state, capnp::DynamicList::Builder builder) {
     }
     break;
   default:
-    KJ_FAIL_REQUIRE("can't map type to Lua", builder.getSchema().whichElementType());
+    KJ_FAIL_REQUIRE("can't map type to Lua",
+        static_cast<int>(builder.getSchema().whichElementType()));
   }
 }
 

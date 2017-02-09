@@ -94,13 +94,13 @@ func (g *gen) supportLib() {
 	// MODE must be an octal string with a leading zero.  OWNER and GROUP
 	// denote a numeric ID by prefixing with ":".  stdout will be empty if
 	// something changed, "noop" otherwise.
-	// TODO(darwin): stat command is different.
 	if g.needsSetmode {
 		g.literal(`setmode() {
 	local changed=0
+	local os="$(uname -s)"
 	if [[ ! -z "$2" ]]; then
 		local currmode
-		currmode="0$(stat -c '%a' "$1")"
+		currmode="0$([[ "$os" != Darwin ]] && stat -c '%a' "$1" || stat -f '%OMp%03OLp' "$1")"
 		[[ $? -eq 0 ]] || return 1
 		if [[ "$currmode" -ne "$2" ]]; then
 			chmod "$2" "$1" && changed=1 || return 1
@@ -112,19 +112,19 @@ func (g *gen) supportLib() {
 		local currowner
 		if [[ "$newowner" = :* ]]; then
 			newowner="${newowner:1}"
-			currowner="$(stat -c '%u' "$1")"
+			currowner="$([[ "$os" != Darwin ]] && stat -c '%u' "$1" || stat -f '%Du' "$1")"
 			[[ $? -eq 0 ]] || return 1
 		elif [[ ! -z "$newowner" ]]; then
-			currowner="$(stat -c '%U' "$1")"
+			currowner="$([[ "$os" != Darwin ]] && stat -c '%U' "$1" || stat -f '%Su' "$1")"
 			[[ $? -eq 0 ]] || return 1
 		fi
 		local currgroup
 		if [[ "$newgroup" = :* ]]; then
 			newgroup="${newgroup:1}"
-			currgroup="$(stat -c '%g' "$1")"
+			currgroup="$([[ "$os" != Darwin ]] && stat -c '%g' "$1" || stat -f '%Dg' "$1")"
 			[[ $? -eq 0 ]] || return 1
 		elif [[ ! -z "$newgroup" ]]; then
-			currgroup="$(stat -c '%G' "$1")"
+			currgroup="$([[ "$os" != Darwin ]] && stat -c '%G' "$1" || stat -f '%Sg' "$1")"
 			[[ $? -eq 0 ]] || return 1
 		fi
 		if [[ "$currowner" != "$newowner" || "$currgroup" != "$newgroup" ]]; then

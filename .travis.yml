@@ -13,9 +13,11 @@ script:         ./bazel --bazelrc=travis/bazelrc test //...
 deploy:
   - provider: script
     script: "travis/deploy.sh '' gs://mcm-continuous-builds/mcm-${TRAVIS_BUILD_NUMBER}- .zip"
+    skip_cleanup: true
     on:
       branch: master
   - provider: script
     script: "travis/deploy.sh \"$TRAVIS_TAG\" \"gs://mcm-releases/mcm-${TRAVIS_TAG}-\" .zip"
+    skip_cleanup: true
     on:
       tags: true

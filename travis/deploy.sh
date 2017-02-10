@@ -22,16 +22,31 @@ echostep() {
 }
 
 # Install gcloud & gsutil
-if [[ ! -d "$HOME/google-cloud-sdk" ]]; then
-  echostep curl 'https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-142.0.0-linux-x86_64.tar.gz' > /tmp/google-cloud-sdk.tar.gz || exit 1
-  echo 'c05f649623b7a8696923f4c003bd95decb591f6e /tmp/google-cloud-sdk.tar.gz' | echostep sha1sum -c || exit 1
-  echostep tar zxf /tmp/google-cloud-sdk.tar.gz -C "$HOME" || exit 1
+gcloud_root="$HOME/google-cloud-sdk"
+if [[ ! -d "$gcloud_root" ]]; then
+  gcloud_url_prefix="https://storage.googleapis.com/cloud-sdk-release/google-cloud-sdk-142.0.0"
+  gcloud_tar_path="/tmp/google-cloud-sdk.tar.gz"
+  case "$TRAVIS_OS_NAME" in
+    linux)
+      echostep curl "${gcloud_url_prefix}-linux-x86_64.tar.gz" > "$gcloud_tar_path" || exit 1
+      echo "c05f649623b7a8696923f4c003bd95decb591f6e $gcloud_tar_path" | echostep sha1sum -c || exit 1
+      ;;
+    osx)
+      echostep curl "${gcloud_url_prefix}-darwin-x86_64.tar.gz" > "$gcloud_tar_path" || exit 1
+      echo "b558ba0e1928e3850d5143a377df546c9cc773d3 $gcloud_tar_path" | echostep shasum -c || exit 1
+      ;;
+    *)
+      echo "unknown Travis OS $TRAVIS_OS_NAME" 1>&2
+      exit 1
+      ;;
+  esac
+  echostep tar zxf "$gcloud_tar_path" -C "$(dirname "$gcloud_root")" || exit 1
 fi
-echostep $HOME/google-cloud-sdk/bin/gcloud --quiet components install gsutil || exit 1
+echostep "$gcloud_root/bin/gcloud" --quiet components install gsutil || exit 1
 
 # gcloud init
-echostep $HOME/google-cloud-sdk/bin/gcloud config set disable_prompts True || exit 1
-echostep $HOME/google-cloud-sdk/bin/gcloud config set project mcm-releases || exit 1
+echostep "$gcloud_root/bin/gcloud" config set disable_prompts True || exit 1
+echostep "$gcloud_root/bin/gcloud" config set project mcm-releases || exit 1
 if [[ ! -f travis/service-account.json ]]; then
   echo "decrypt travis/service-account.json" 1>&2
   openssl aes-256-cbc \
@@ -40,7 +55,7 @@ if [[ ! -f travis/service-account.json ]]; then
     -out travis/service-account.json \
     -d || exit 1
 fi
-echostep $HOME/google-cloud-sdk/bin/gcloud auth activate-service-account --key-file=travis/service-account.json || exit 1
+echostep "$gcloud_root/bin/gcloud" auth activate-service-account --key-file=travis/service-account.json || exit 1
 
 # Build and deploy
 echostep ./bazel --bazelrc=travis/bazelrc build -c opt --stamp --embed_label="$build_label" \
@@ -50,7 +65,7 @@ echostep zip -j travis/build.zip \
   bazel-bin/exec/mcm-exec \
   bazel-bin/luacat/mcm-luacat \
   bazel-bin/shellify/mcm-shellify || exit 1
-echostep $HOME/google-cloud-sdk/bin/gsutil cp -n travis/build.zip "$gcs_out"
+echostep "$gcloud_root/bin/gsutil" cp -n travis/build.zip "$gcs_out"
 gsutil_result=$?
 echostep rm -f travis/build.zip || exit 1
 [[ $gsutil_result -eq 0 ]] || exit 1
